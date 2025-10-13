@@ -18,6 +18,8 @@ export default [
       globals: {
         console: 'readonly',
         process: 'readonly',
+        AbortController: 'readonly',
+        AbortSignal: 'readonly',
       },
     },
     plugins: {
@@ -26,9 +28,18 @@ export default [
     },
     rules: {
       ...tseslint.configs.recommended.rules,
-      'prettier/prettier': 'error',
+      // 'prettier/prettier': 'error',
       '@typescript-eslint/explicit-function-return-type': 'warn',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      'object-curly-newline': [
+        'error',
+        {
+          ObjectExpression: 'always',
+          ObjectPattern: { multiline: true },
+          ImportDeclaration: 'always',
+          ExportDeclaration: { multiline: true, minProperties: 3 },
+        },
+      ],
     },
   },
   {
@@ -43,6 +54,8 @@ export default [
         require: 'readonly',
         __dirname: 'readonly',
         __filename: 'readonly',
+        AbortController: 'readonly',
+        AbortSignal: 'readonly',
       },
     },
     plugins: {
