@@ -7,9 +7,9 @@ import type { ProjectSnapshot, ProjectSummary } from './project.js';
  */
 export interface StorageProvider {
   readonly id: string;
-  loadSnapshot(projectId: ProjectId): Promise<ProjectSnapshot | undefined> | ProjectSnapshot | undefined;
-  saveSnapshot(snapshot: ProjectSnapshot): Promise<void> | void;
-  listSummaries?(): Promise<readonly ProjectSummary[]> | readonly ProjectSummary[];
+  loadSnapshot(projectId: ProjectId): Promise<ProjectSnapshot | undefined>;
+  saveSnapshot(snapshot: ProjectSnapshot): Promise<void>;
+  listSummaries?(): Promise<readonly ProjectSummary[]>;
 }
 
 /**

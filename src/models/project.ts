@@ -17,8 +17,7 @@ export interface ProjectInit {
 /**
  * Snapshot of project-level metadata.
  */
-export interface ProjectMetadata
-  extends Omit<ProjectInit, 'id' | 'parts' | 'combos'> {
+export interface ProjectMetadata extends Omit<ProjectInit, 'id' | 'parts' | 'combos'> {
   readonly id: ProjectId;
   readonly createdAt: ISO8601Timestamp;
   readonly updatedAt: ISO8601Timestamp;
