@@ -9,15 +9,7 @@ import type {
 import type { PartDefinition, PartVersion } from '../../../models/part.js';
 import type { ProjectSnapshot } from '../../../models/project.js';
 import type { VersionCombo } from '../../../models/combo.js';
-
-const clone = <Value>(value: Value): Value => {
-  const cloner = (globalThis as { structuredClone?: <T>(input: T) => T }).structuredClone;
-  if (typeof cloner === 'function') {
-    return cloner(value);
-  }
-
-  return JSON.parse(JSON.stringify(value)) as Value;
-};
+import { cloneValue } from '../../../lib/utils/clone.js';
 
 const toProjectId = (value: string): ProjectId => value as ProjectId;
 const toPartId = (value: string): PartId => value as PartId;
@@ -80,7 +72,7 @@ export type SnapshotOverrides = Partial<Omit<ProjectSnapshot, 'project'>> & {
 };
 
 export const createProjectSnapshot = (overrides: SnapshotOverrides = {}): ProjectSnapshot => {
-  const snapshot = clone(baseSnapshot);
+  const snapshot = cloneValue(baseSnapshot);
 
   const project = { ...snapshot.project, ...overrides.project };
 

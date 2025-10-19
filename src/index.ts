@@ -5,4 +5,5 @@
 
 export { greet, add } from './example';
 export * from './models/index.js';
+export * from './lib/index.js';
 export * from './storages/in-memory/index.js';

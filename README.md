@@ -1,97 +1,193 @@
 # version-container
 
-A minimal TypeScript library built with Vite for building and Vitest for testing.
+Type-safe building blocks for managing projects composed of parts, versions, and version combos. The library focuses on deterministic snapshots, pluggable storage/adapters, and tooling-friendly lifecycle management.
 
 ## Features
 
-- **TypeScript** with strict mode enabled
-- **Vite** for fast builds and development
-- **Vitest** for unit testing
-- **ESLint** with TypeScript support (ESLint 9 flat config)
-- **Prettier** for code formatting
-- **ESM modules** by default with CommonJS output support
+- Strict TypeScript typings with branded identifiers for every domain entity.
+- In-memory storage provider for fast testing and prototyping.
+- `ProjectRegistry` and `ProjectHandle` abstractions to manage multiple open projects concurrently.
+- Deterministic project snapshot builder with validation for duplicate or unknown parts/versions.
+- Utility helpers for ID generation, cloning, and concurrency control.
+- Ready-to-extend hooks for future middleware integrations (commented TODOs denote insertion points).
 
-## Getting Started
-
-### Prerequisites
-
-- Node.js (v18 or higher recommended)
-- npm or yarn
-
-### Installation
+## Installation
 
 ```bash
 npm install
 ```
 
-### Development
+The package ships both ESM and CommonJS bundles plus declaration files so it can be consumed from modern build tools or Node runtimes.
 
-```bash
-# Type check without emitting files
-npm run typecheck
+## Usage
 
-# Run tests in watch mode
-npm test
+The following walkthrough demonstrates the full lifecycle: creating a project, defining parts and versions, composing combos, and persisting updates.
 
-# Run tests with UI
-npm run test:ui
+### 1. Set up storage and registry
 
-# Generate test coverage report
-npm run test:coverage
+```ts
+import {
+  InMemoryStorageProvider,
+  ProjectRegistry,
+  createAdapterId,
+  createComboId,
+  createPartId,
+  createPartVersionId,
+} from 'version-container';
 
-# Run linter
-npm run lint
-
-# Fix linting issues
-npm run lint:fix
-
-# Format code
-npm run format
-
-# Check code formatting
-npm run format:check
+const storage = new InMemoryStorageProvider();
+const registry = new ProjectRegistry({
+  storage,
+  adapters: [
+    // register real adapters here (e.g. Git, HTTP). For now we rely on IDs only.
+  ],
+});
 ```
 
-### Building
+### 2. Create a project with parts, versions, and a combo
 
-```bash
-npm run build
+```ts
+const enginePartId = createPartId('engine');
+const engineV1Id = createPartVersionId('engine-v1');
+const baselineComboId = createComboId('baseline');
+const adapterId = createAdapterId('in-memory');
+
+const handle = await registry.open({
+  name: 'Rocket Guidance System',
+  metadata: { owner: 'avionics-team' },
+  parts: [
+    {
+      id: enginePartId,
+      name: 'Engine Controller',
+      adapterId,
+      versions: [
+        {
+          id: engineV1Id,
+          label: '1.0.0',
+          locator: { uri: 'memory://engine@1.0.0' },
+        },
+      ],
+    },
+  ],
+  combos: [
+    {
+      id: baselineComboId,
+      name: 'Baseline',
+      bindings: [
+        {
+          partId: enginePartId,
+          versionId: engineV1Id,
+        },
+      ],
+    },
+  ],
+});
+
+const snapshot = await handle.getSnapshot();
+console.log(snapshot.project.name); // "Rocket Guidance System"
 ```
 
-This will generate:
-- `dist/version-container.es.js` - ESM module
-- `dist/version-container.cjs.js` - CommonJS module
-- `dist/*.d.ts` - TypeScript declaration files
+Behind the scenes `ProjectRegistry` converts your initialization data into a validated `ProjectSnapshot`, persists it via the chosen storage provider, and returns a `ProjectHandle` wired with adapters, a clock, and concurrency guards.
+
+### 3. Mutate the project over time
+
+`ProjectHandle.update` provides serialized access to the project snapshot. Within the mutator you can add parts, versions, or combos in a pure, immutable fashion.
+
+```ts
+await handle.update((snapshot) => {
+  const newVersionId = createPartVersionId('engine-v1.1.0');
+
+  return {
+    ...snapshot,
+    versions: [
+      ...snapshot.versions,
+      {
+        id: newVersionId,
+        partId: enginePartId,
+        label: '1.1.0',
+        locator: { uri: 'memory://engine@1.1.0' },
+      },
+    ],
+    combos: snapshot.combos.map((combo) =>
+      combo.id === baselineComboId
+        ? {
+            ...combo,
+            bindings: combo.bindings.map((binding) =>
+              binding.partId === enginePartId
+                ? { ...binding, versionId: newVersionId }
+                : binding
+            ),
+          }
+        : combo
+    ),
+  };
+});
+
+await handle.save(); // persists only if the snapshot changed
+```
+
+All updates automatically receive a fresh `updatedAt` timestamp. Because mutations occur inside a mutex, concurrent callers cannot corrupt the in-memory cache.
+
+### 4. Work with multiple projects
+
+`ProjectRegistry.load` rehydrates an existing project (or reuses the currently open handle). You can list or close open projects at any time:
+
+```ts
+const existingHandle = await registry.load(handle.projectId);
+console.log(existingHandle === handle); // true, already open
+
+console.log(registry.listOpenProjects()); // [handle.projectId]
+
+await registry.close(handle.projectId); // closes and saves by default
+```
+
+When `close` executes it optionally flushes dirty snapshots and releases cached resources so the project can be loaded elsewhere.
+
+### Notes on middleware
+
+Middleware hooks are not yet implemented, but TODO markers in the code indicate where lifecycle events (`project:create`, `project:load`, `project:save`, etc.) will be exposed. These placeholders make it straightforward to add logging, validation, or policy enforcement layers in future iterations.
+
+## API Surface
+
+Key exports available today:
+
+- Domain models – `ProjectInit`, `PartDefinition`, `VersionCombo`, and related branded ID types (see `src/models`).
+- Utilities – `createPartId`, `createPartVersionId`, `createComboId`, `createAdapterId`, `cloneValue`, and the `AsyncMutex`.
+- Runtime services – `ProjectRegistry`, `ProjectHandle`, `buildProjectSnapshot`, plus a `SystemClock` you can replace with a deterministic clock in tests.
+- Storage – `InMemoryStorageProvider` for persistence during development or unit testing.
+
+Refer to the source modules for comprehensive type definitions and JSDoc comments.
 
 ## Project Structure
 
 ```
-/src                # Source code
-  /example.ts       # Example module
-  /index.ts         # Main entry point (barrel exports)
+/src
+  /lib                # Runtime services, utilities, and clocks
+  /models             # Domain model interfaces and README
+  /storages           # Storage providers (in-memory MVP)
+  /index.ts           # Public barrel exports
 
-/tests              # Unit tests
-  /example.test.ts  # Tests for example module
-
-/dist               # Build output (gitignored)
+/tests                # Legacy example-based tests
 ```
 
-## Guidelines
+Each module ships with colocated unit tests (`*.test.ts`) and, where applicable, fixture/mocks directories.
 
-See [AGENTS.md](./AGENTS.md) for detailed architecture principles and testing guidelines.
+## Development Scripts
 
-## Scripts
+```bash
+npm run typecheck      # TypeScript compile without emit
+npm run lint           # ESLint (flat config, TypeScript-aware)
+npm run test           # Vitest in watch mode
+npm run test:ui        # Vitest UI runner
+npm run test:coverage  # Coverage report
+npm run build          # Type declarations + Vite bundle
+npm run format         # Prettier write
+npm run format:check   # Prettier verify
+```
 
-- `npm run dev` - Start development server (if applicable)
-- `npm run build` - Build for production
-- `npm test` - Run tests in watch mode
-- `npm run test:ui` - Run tests with UI
-- `npm run test:coverage` - Generate coverage report
-- `npm run lint` - Run linter
-- `npm run lint:fix` - Fix linting issues
-- `npm run format` - Format code
-- `npm run format:check` - Check code formatting
-- `npm run typecheck` - Type check without emitting files
+## Contributing
+
+Follow the architecture and testing principles documented in [AGENTS.md](./AGENTS.md). Contributions should include updated tests, strict types, and JSDoc for any new public APIs.
 
 ## License
 
