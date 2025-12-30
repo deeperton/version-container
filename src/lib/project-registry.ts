@@ -1,15 +1,19 @@
 import type { PartAdapter, StorageProvider } from '../models/adapter.js';
 import type { ProjectInit, ProjectSnapshot } from '../models/project.js';
-import type { AdapterId, ProjectId } from '../models/base.js';
+import type { AdapterId, PartId, PartVersionId, ProjectId } from '../models/base.js';
 import { SystemClock, type Clock } from './clock.js';
 import { buildProjectSnapshot } from './project-snapshot-builder.js';
 import { ProjectHandle } from './project-handle.js';
 import { createProjectId } from './ids.js';
+import { ProjectEventDispatcher } from './events/project-events.js';
+import type { PartDefinition, PartInit, PartVersion, PartVersionInit } from '../models/part.js';
+import { cloneValue } from './utils/clone.js';
 
 interface ProjectRegistryOptions {
   readonly storage: StorageProvider;
   readonly adapters?: readonly PartAdapter[];
   readonly clock?: Clock;
+  readonly events?: ProjectEventDispatcher;
 }
 
 /**
@@ -18,12 +22,14 @@ interface ProjectRegistryOptions {
 export class ProjectRegistry {
   private readonly storage: StorageProvider;
   private readonly clock: Clock;
+  private readonly events: ProjectEventDispatcher;
   private readonly adapters = new Map<AdapterId, PartAdapter>();
   private readonly handles = new Map<ProjectId, ProjectHandle>();
 
   constructor(options: ProjectRegistryOptions) {
     this.storage = options.storage;
     this.clock = options.clock ?? new SystemClock();
+    this.events = options.events ?? new ProjectEventDispatcher();
 
     for (const adapter of options.adapters ?? []) {
       this.adapters.set(adapter.id, adapter);
@@ -47,6 +53,12 @@ export class ProjectRegistry {
 
     const handle = this.createHandle(projectId, snapshot);
     this.handles.set(projectId, handle);
+
+    await this.events.emit('project:created', {
+      projectId,
+      snapshot: cloneValue(snapshot),
+    });
+
     return handle;
   }
 
@@ -68,6 +80,10 @@ export class ProjectRegistry {
 
     const handle = this.createHandle(projectId, snapshot);
     this.handles.set(projectId, handle);
+    await this.events.emit('project:loaded', {
+      projectId,
+      snapshot: cloneValue(snapshot),
+    });
     return handle;
   }
 
@@ -88,6 +104,50 @@ export class ProjectRegistry {
   }
 
   /**
+   * Adds a new part to the specified project.
+   */
+  async addPart(projectId: ProjectId, partInit: PartInit): Promise<PartDefinition> {
+    const handle = await this.load(projectId);
+    return handle.addPart(partInit);
+  }
+
+  /**
+   * Updates an existing part definition.
+   */
+  async updatePart(
+    projectId: ProjectId,
+    partId: PartId,
+    mutator: (part: PartDefinition) => PartDefinition
+  ): Promise<PartDefinition> {
+    const handle = await this.load(projectId);
+    return handle.updatePart(partId, mutator);
+  }
+
+  /**
+   * Adds a new version to the given part.
+   */
+  async addPartVersion(
+    projectId: ProjectId,
+    partId: PartId,
+    versionInit: PartVersionInit
+  ): Promise<PartVersion> {
+    const handle = await this.load(projectId);
+    return handle.addPartVersion(partId, versionInit);
+  }
+
+  /**
+   * Updates a version within a project.
+   */
+  async updatePartVersion(
+    projectId: ProjectId,
+    versionId: PartVersionId,
+    mutator: (version: PartVersion) => PartVersion
+  ): Promise<PartVersion> {
+    const handle = await this.load(projectId);
+    return handle.updatePartVersion(versionId, mutator);
+  }
+
+  /**
    * Lists identifiers for all currently opened projects.
    */
   listOpenProjects(): readonly ProjectId[] {
@@ -101,6 +161,13 @@ export class ProjectRegistry {
     return this.handles.get(projectId);
   }
 
+  /**
+   * Exposes the shared event dispatcher.
+   */
+  getEventDispatcher(): ProjectEventDispatcher {
+    return this.events;
+  }
+
   private createHandle(projectId: ProjectId, snapshot?: ProjectSnapshot): ProjectHandle {
     const adapters = Array.from(this.adapters.values());
 
@@ -110,6 +177,7 @@ export class ProjectRegistry {
       adapters,
       clock: this.clock,
       initialSnapshot: snapshot,
+      events: this.events,
     });
   }
 }

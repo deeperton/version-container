@@ -1,20 +1,41 @@
 import type { PartAdapter, StorageProvider } from '../models/adapter.js';
+import type { PartDefinition, PartInit, PartVersion, PartVersionInit } from '../models/part.js';
 import type { ProjectSnapshot } from '../models/project.js';
-import type { ProjectId } from '../models/base.js';
+import type { PartId, PartVersionId, ProjectId } from '../models/base.js';
 import { cloneValue } from './utils/clone.js';
 import type { Clock } from './clock.js';
 import { AsyncMutex } from './utils/async-mutex.js';
+import { sortById } from './utils/sort.js';
+import {
+  ProjectEventDispatcher,
+  type ProjectEventMap,
+  type ProjectEventName,
+} from './events/project-events.js';
+import { createPartId, createPartVersionId } from './ids.js';
 
 interface ProjectHandleOptions {
   readonly projectId: ProjectId;
   readonly storage: StorageProvider;
   readonly adapters: readonly PartAdapter[];
   readonly clock: Clock;
+  readonly events: ProjectEventDispatcher;
   readonly initialSnapshot?: ProjectSnapshot;
   readonly loader?: () => Promise<ProjectSnapshot | undefined>;
 }
 
 type SnapshotMutator = (snapshot: ProjectSnapshot) => ProjectSnapshot;
+
+type MutationEventFactory = (
+  snapshot: ProjectSnapshot
+) => { readonly name: ProjectEventName; readonly payload: ProjectEventMap[ProjectEventName] };
+
+type MutationEvent = ReturnType<MutationEventFactory>;
+
+interface MutationResult<Result> {
+  readonly snapshot: ProjectSnapshot;
+  readonly result: Result;
+  readonly events?: readonly MutationEventFactory[];
+}
 
 /**
  * Manages the cached state and persistence lifecycle for a single project instance.
@@ -25,6 +46,7 @@ export class ProjectHandle {
   private readonly storage: StorageProvider;
   private readonly adapters: readonly PartAdapter[];
   private readonly clock: Clock;
+  private readonly events: ProjectEventDispatcher;
   private readonly loader: () => Promise<ProjectSnapshot | undefined>;
   private readonly mutex = new AsyncMutex();
 
@@ -37,9 +59,10 @@ export class ProjectHandle {
     this.storage = options.storage;
     this.adapters = options.adapters;
     this.clock = options.clock;
+    this.events = options.events;
+
     const defaultLoader = (): Promise<ProjectSnapshot | undefined> =>
       this.storage.loadSnapshot(this.projectId);
-
     this.loader = options.loader ?? defaultLoader;
 
     if (options.initialSnapshot) {
@@ -94,25 +117,19 @@ export class ProjectHandle {
    * @param mutator - Function that receives the current snapshot and returns the new state.
    */
   async update(mutator: SnapshotMutator): Promise<ProjectSnapshot> {
-    return this.mutex.runExclusive(async () => {
-      this.assertOpen();
-      const current = await this.ensureSnapshot();
-      const next = mutator(cloneValue(current));
+    return this.commitMutation<ProjectSnapshot>((snapshot) => {
+      const next = mutator(cloneValue(snapshot));
 
-      const updatedSnapshot: ProjectSnapshot = {
-        ...next,
-        project: {
-          ...next.project,
-          updatedAt: this.clock.now(),
-        },
+      return {
+        snapshot: next,
+        result: next,
+        events: [
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
       };
-
-      this.snapshotCache = cloneValue(updatedSnapshot);
-      this.dirty = true;
-
-      // TODO(middleware): project:save hook could observe pending snapshot before persistence.
-
-      return cloneValue(this.snapshotCache);
     });
   }
 
@@ -124,6 +141,236 @@ export class ProjectHandle {
       this.assertOpen();
       await this.persistIfDirty();
     });
+  }
+
+  /**
+   * Adds a new part definition (and optional seed versions) to the project.
+   */
+  async addPart(partInit: PartInit): Promise<PartDefinition> {
+    const result = await this.commitMutation<PartDefinition>((snapshot) => {
+      const partId = createPartId(partInit.id);
+      if (snapshot.parts.some((existing) => existing.id === partId)) {
+        throw new Error(`Part ${partId as string} already exists in project.`);
+      }
+
+      const part: PartDefinition = {
+        id: partId,
+        name: partInit.name,
+        description: partInit.description,
+        adapterId: partInit.adapterId,
+        tags: partInit.tags,
+        metadata: partInit.metadata,
+      };
+
+      const existingVersionIds = new Set(snapshot.versions.map((version) => version.id));
+      const newVersions: PartVersion[] = [];
+
+      for (const versionInit of partInit.versions ?? []) {
+        const versionId = createPartVersionId(versionInit.id);
+        if (existingVersionIds.has(versionId)) {
+          throw new Error(`Version ${versionId as string} already exists in project.`);
+        }
+        if (newVersions.some((version) => version.id === versionId)) {
+          throw new Error(`Duplicate version identifier ${versionId as string} in part seed data.`);
+        }
+
+        newVersions.push({
+          id: versionId,
+          partId,
+          label: versionInit.label,
+          locator: versionInit.locator,
+          metadata: versionInit.metadata,
+        });
+      }
+
+      const nextSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        parts: sortById([...snapshot.parts, part]),
+        versions: sortById([...snapshot.versions, ...newVersions]),
+      };
+
+      return {
+        snapshot: nextSnapshot,
+        result: part,
+        events: [
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'part:added',
+            payload: {
+              projectId: this.projectId,
+              part,
+              snapshot: finalSnapshot,
+            },
+          }),
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
+      };
+    });
+
+    return cloneValue(result);
+  }
+
+  /**
+   * Updates an existing part definition.
+   */
+  async updatePart(
+    partId: PartId,
+    mutator: (part: PartDefinition) => PartDefinition
+  ): Promise<PartDefinition> {
+    const result = await this.commitMutation<PartDefinition>((snapshot) => {
+      const index = snapshot.parts.findIndex((part) => part.id === partId);
+      if (index === -1) {
+        throw new Error(`Part ${partId as string} does not exist.`);
+      }
+
+      const previous = snapshot.parts[index]!;
+      const nextPart = mutator(previous);
+
+      if (nextPart.id !== previous.id) {
+        throw new Error('Part identifier cannot be changed during update.');
+      }
+
+      const parts = [...snapshot.parts];
+      parts[index] = nextPart;
+
+      const nextSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        parts: sortById(parts),
+      };
+
+      return {
+        snapshot: nextSnapshot,
+        result: nextPart,
+        events: [
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'part:updated',
+            payload: {
+              projectId: this.projectId,
+              part: nextPart,
+              previous,
+              snapshot: finalSnapshot,
+            },
+          }),
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
+      };
+    });
+
+    return cloneValue(result);
+  }
+
+  /**
+   * Adds a new version to an existing part.
+   */
+  async addPartVersion(partId: PartId, versionInit: PartVersionInit): Promise<PartVersion> {
+    const result = await this.commitMutation<PartVersion>((snapshot) => {
+      if (!snapshot.parts.some((part) => part.id === partId)) {
+        throw new Error(`Cannot add version; part ${partId as string} does not exist.`);
+      }
+
+      const versionId = createPartVersionId(versionInit.id);
+      if (snapshot.versions.some((version) => version.id === versionId)) {
+        throw new Error(`Version ${versionId as string} already exists.`);
+      }
+
+      const version: PartVersion = {
+        id: versionId,
+        partId,
+        label: versionInit.label,
+        locator: versionInit.locator,
+        metadata: versionInit.metadata,
+      };
+
+      const nextSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        versions: sortById([...snapshot.versions, version]),
+      };
+
+      return {
+        snapshot: nextSnapshot,
+        result: version,
+        events: [
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'version:added',
+            payload: {
+              projectId: this.projectId,
+              partId,
+              version,
+              snapshot: finalSnapshot,
+            },
+          }),
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
+      };
+    });
+
+    return cloneValue(result);
+  }
+
+  /**
+   * Updates a version identified by its identifier.
+   */
+  async updatePartVersion(
+    versionId: PartVersionId,
+    mutator: (version: PartVersion) => PartVersion
+  ): Promise<PartVersion> {
+    const result = await this.commitMutation<PartVersion>((snapshot) => {
+      const index = snapshot.versions.findIndex((version) => version.id === versionId);
+      if (index === -1) {
+        throw new Error(`Version ${versionId as string} does not exist.`);
+      }
+
+      const previous = snapshot.versions[index]!;
+      const nextVersion = mutator(previous);
+
+      if (nextVersion.id !== previous.id) {
+        throw new Error('Version identifier cannot be changed during update.');
+      }
+
+      if (nextVersion.partId !== previous.partId) {
+        throw new Error('Version cannot be reassigned to a different part.');
+      }
+
+      const versions = [...snapshot.versions];
+      versions[index] = nextVersion;
+
+      const nextSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        versions: sortById(versions),
+      };
+
+      return {
+        snapshot: nextSnapshot,
+        result: nextVersion,
+        events: [
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'version:updated',
+            payload: {
+              projectId: this.projectId,
+              partId: nextVersion.partId,
+              versionId: nextVersion.id,
+              version: nextVersion,
+              previous,
+              snapshot: finalSnapshot,
+            },
+          }),
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
+      };
+    });
+
+    return cloneValue(result);
   }
 
   /**
@@ -142,6 +389,8 @@ export class ProjectHandle {
       this.closed = true;
       this.snapshotCache = undefined;
       this.dirty = false;
+
+      await this.events.emit('project:closed', { projectId: this.projectId });
     });
   }
 
@@ -173,5 +422,38 @@ export class ProjectHandle {
 
     await this.storage.saveSnapshot(this.snapshotCache);
     this.dirty = false;
+  }
+
+  private async commitMutation<Result>(
+    mutator: (snapshot: ProjectSnapshot) => MutationResult<Result>
+  ): Promise<Result> {
+    return this.mutex.runExclusive(async () => {
+      this.assertOpen();
+      const current = await this.ensureSnapshot();
+      const draft = cloneValue(current);
+
+      const { snapshot, result, events } = mutator(draft);
+      const updatedAt = this.clock.now();
+
+      const finalSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        project: {
+          ...snapshot.project,
+          updatedAt,
+        },
+      };
+
+      this.snapshotCache = cloneValue(finalSnapshot);
+      this.dirty = true;
+
+      if (events) {
+        for (const factory of events) {
+          const event = factory(finalSnapshot);
+          await this.events.emit(event.name, event.payload);
+        }
+      }
+
+      return cloneValue(result);
+    });
   }
 }

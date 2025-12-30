@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 ## Project Overview
 
@@ -49,10 +49,10 @@ This is a TypeScript library project built with Vite for building and bundling, 
   it('should do something', () => {
     // Arrange: Set up test data
     const input = 'test';
-    
+
     // Act: Execute the code under test
     const result = myFunction(input);
-    
+
     // Assert: Verify the result
     expect(result).toBe('expected');
   });

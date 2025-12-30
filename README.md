@@ -55,20 +55,6 @@ const adapterId = createAdapterId('in-memory');
 const handle = await registry.open({
   name: 'Rocket Guidance System',
   metadata: { owner: 'avionics-team' },
-  parts: [
-    {
-      id: enginePartId,
-      name: 'Engine Controller',
-      adapterId,
-      versions: [
-        {
-          id: engineV1Id,
-          label: '1.0.0',
-          locator: { uri: 'memory://engine@1.0.0' },
-        },
-      ],
-    },
-  ],
   combos: [
     {
       id: baselineComboId,
@@ -83,6 +69,18 @@ const handle = await registry.open({
   ],
 });
 
+await registry.addPart(handle.projectId, {
+  id: enginePartId,
+  name: 'Engine Controller',
+  adapterId,
+});
+
+await registry.addPartVersion(handle.projectId, enginePartId, {
+  id: engineV1Id,
+  label: '1.0.0',
+  locator: { uri: 'memory://engine@1.0.0' },
+});
+
 const snapshot = await handle.getSnapshot();
 console.log(snapshot.project.name); // "Rocket Guidance System"
 ```
@@ -91,37 +89,35 @@ Behind the scenes `ProjectRegistry` converts your initialization data into a val
 
 ### 3. Mutate the project over time
 
-`ProjectHandle.update` provides serialized access to the project snapshot. Within the mutator you can add parts, versions, or combos in a pure, immutable fashion.
+Atomic helpers on the registry/handle let you add or refine parts and versions without re-sending the full snapshot. The handle still exposes `update` for large structural edits (combos, metadata, etc.).
 
 ```ts
-await handle.update((snapshot) => {
-  const newVersionId = createPartVersionId('engine-v1.1.0');
+const newVersionId = createPartVersionId('engine-v1.1.0');
 
-  return {
-    ...snapshot,
-    versions: [
-      ...snapshot.versions,
-      {
-        id: newVersionId,
-        partId: enginePartId,
-        label: '1.1.0',
-        locator: { uri: 'memory://engine@1.1.0' },
-      },
-    ],
-    combos: snapshot.combos.map((combo) =>
-      combo.id === baselineComboId
-        ? {
-            ...combo,
-            bindings: combo.bindings.map((binding) =>
-              binding.partId === enginePartId
-                ? { ...binding, versionId: newVersionId }
-                : binding
-            ),
-          }
-        : combo
-    ),
-  };
+await registry.addPartVersion(handle.projectId, enginePartId, {
+  id: newVersionId,
+  label: '1.1.0',
+  locator: { uri: 'memory://engine@1.1.0' },
 });
+
+await registry.updatePartVersion(handle.projectId, newVersionId, (version) => ({
+  ...version,
+  metadata: { releaseNotes: 'Improved fuel mixture' },
+}));
+
+await handle.update((snapshot) => ({
+  ...snapshot,
+  combos: snapshot.combos.map((combo) =>
+    combo.id === baselineComboId
+      ? {
+          ...combo,
+          bindings: combo.bindings.map((binding) =>
+            binding.partId === enginePartId ? { ...binding, versionId: newVersionId } : binding
+          ),
+        }
+      : combo
+  ),
+}));
 
 await handle.save(); // persists only if the snapshot changed
 ```
@@ -143,6 +139,27 @@ await registry.close(handle.projectId); // closes and saves by default
 
 When `close` executes it optionally flushes dirty snapshots and releases cached resources so the project can be loaded elsewhere.
 
+### 5. Subscribe to lifecycle events
+
+Every mutating operation emits typed events through a central dispatcher. Middleware and tooling can subscribe once and react to structural changes.
+
+```ts
+const events = registry.getEventDispatcher();
+
+const unsubscribe = events.subscribe('version:updated', ({ projectId, version, snapshot }) => {
+  console.log(`Version ${version.id} for project ${projectId} updated`, snapshot.project.updatedAt);
+});
+
+await registry.updatePartVersion(handle.projectId, newVersionId, (current) => ({
+  ...current,
+  label: '1.1.1',
+}));
+
+unsubscribe();
+```
+
+Available events today include `project:created`, `project:loaded`, `project:updated`, `project:closed`, `part:added`, `part:updated`, `version:added`, and `version:updated`. Future middleware hooks will piggy-back on the same dispatcher.
+
 ### Notes on middleware
 
 Middleware hooks are not yet implemented, but TODO markers in the code indicate where lifecycle events (`project:create`, `project:load`, `project:save`, etc.) will be exposed. These placeholders make it straightforward to add logging, validation, or policy enforcement layers in future iterations.
@@ -153,7 +170,7 @@ Key exports available today:
 
 - Domain models – `ProjectInit`, `PartDefinition`, `VersionCombo`, and related branded ID types (see `src/models`).
 - Utilities – `createPartId`, `createPartVersionId`, `createComboId`, `createAdapterId`, `cloneValue`, and the `AsyncMutex`.
-- Runtime services – `ProjectRegistry`, `ProjectHandle`, `buildProjectSnapshot`, plus a `SystemClock` you can replace with a deterministic clock in tests.
+- Runtime services – `ProjectRegistry`, `ProjectHandle`, `ProjectEventDispatcher`, `buildProjectSnapshot`, plus a `SystemClock` you can replace with a deterministic clock in tests.
 - Storage – `InMemoryStorageProvider` for persistence during development or unit testing.
 
 Refer to the source modules for comprehensive type definitions and JSDoc comments.
@@ -187,7 +204,7 @@ npm run format:check   # Prettier verify
 
 ## Contributing
 
-Follow the architecture and testing principles documented in [AGENTS.md](./AGENTS.md). Contributions should include updated tests, strict types, and JSDoc for any new public APIs.
+Follow the architecture and testing principles documented in [CLAUDE.md](./CLAUDE.md). Contributions should include updated tests, strict types, and JSDoc for any new public APIs.
 
 ## License
 

@@ -5,3 +5,5 @@ export * from './project-registry.js';
 export * from './project-snapshot-builder.js';
 export * from './utils/clone.js';
 export * from './utils/async-mutex.js';
+export * from './utils/sort.js';
+export * from './events/project-events.js';
