@@ -1,12 +1,13 @@
 import type { PartAdapter, StorageProvider } from '../models/adapter.js';
 import type { ProjectInit, ProjectSnapshot } from '../models/project.js';
-import type { AdapterId, PartId, PartVersionId, ProjectId } from '../models/base.js';
+import type { AdapterId, ComboId, PartId, PartVersionId, ProjectId } from '../models/base.js';
+import type { PartDefinition, PartInit, PartVersion, PartVersionInit } from '../models/part.js';
+import type { VersionCombo } from '../models/combo.js';
 import { SystemClock, type Clock } from './clock.js';
 import { buildProjectSnapshot } from './project-snapshot-builder.js';
 import { ProjectHandle } from './project-handle.js';
 import { createProjectId } from './ids.js';
 import { ProjectEventDispatcher } from './events/project-events.js';
-import type { PartDefinition, PartInit, PartVersion, PartVersionInit } from '../models/part.js';
 import { cloneValue } from './utils/clone.js';
 
 interface ProjectRegistryOptions {
@@ -152,6 +153,33 @@ export class ProjectRegistry {
    */
   listOpenProjects(): readonly ProjectId[] {
     return Array.from(this.handles.keys());
+  }
+
+  /**
+   * Deletes a combo from the specified project.
+   */
+  async deleteCombo(projectId: ProjectId, comboId: ComboId): Promise<VersionCombo> {
+    const handle = await this.load(projectId);
+    return handle.deleteCombo(comboId);
+  }
+
+  /**
+   * Deletes a version from the specified project.
+   */
+  async deletePartVersion(
+    projectId: ProjectId,
+    versionId: PartVersionId
+  ): Promise<PartVersion> {
+    const handle = await this.load(projectId);
+    return handle.deletePartVersion(versionId);
+  }
+
+  /**
+   * Deletes a part (and all its versions) from the specified project.
+   */
+  async deletePart(projectId: ProjectId, partId: PartId): Promise<PartDefinition> {
+    const handle = await this.load(projectId);
+    return handle.deletePart(partId);
   }
 
   /**

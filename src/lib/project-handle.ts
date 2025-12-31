@@ -1,7 +1,8 @@
 import type { PartAdapter, StorageProvider } from '../models/adapter.js';
 import type { PartDefinition, PartInit, PartVersion, PartVersionInit } from '../models/part.js';
 import type { ProjectSnapshot } from '../models/project.js';
-import type { PartId, PartVersionId, ProjectId } from '../models/base.js';
+import type { ComboId, PartId, PartVersionId, ProjectId } from '../models/base.js';
+import type { VersionCombo } from '../models/combo.js';
 import { cloneValue } from './utils/clone.js';
 import type { Clock } from './clock.js';
 import { AsyncMutex } from './utils/async-mutex.js';
@@ -359,6 +360,150 @@ export class ProjectHandle {
               versionId: nextVersion.id,
               version: nextVersion,
               previous,
+              snapshot: finalSnapshot,
+            },
+          }),
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
+      };
+    });
+
+    return cloneValue(result);
+  }
+
+  /**
+   * Deletes a combo from the project.
+   */
+  async deleteCombo(comboId: ComboId): Promise<VersionCombo> {
+    const result = await this.commitMutation<VersionCombo>((snapshot) => {
+      const index = snapshot.combos.findIndex((combo) => combo.id === comboId);
+      if (index === -1) {
+        throw new Error(`Combo ${comboId as string} does not exist.`);
+      }
+
+      const removedCombo = snapshot.combos[index]!;
+      const nextSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        combos: sortById(snapshot.combos.filter((combo) => combo.id !== comboId)),
+      };
+
+      return {
+        snapshot: nextSnapshot,
+        result: removedCombo,
+        events: [
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'combo:removed',
+            payload: {
+              projectId: this.projectId,
+              comboId,
+              removedCombo,
+              snapshot: finalSnapshot,
+            },
+          }),
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
+      };
+    });
+
+    return cloneValue(result);
+  }
+
+  /**
+   * Deletes a version from the project.
+   * Throws an error if the version is referenced by any combo.
+   */
+  async deletePartVersion(versionId: PartVersionId): Promise<PartVersion> {
+    const result = await this.commitMutation<PartVersion>((snapshot) => {
+      const index = snapshot.versions.findIndex((version) => version.id === versionId);
+      if (index === -1) {
+        throw new Error(`Version ${versionId as string} does not exist.`);
+      }
+
+      // Check if version is referenced by any combo
+      const combosUsingVersion = snapshot.combos.filter((combo) =>
+        combo.bindings.some((binding) => binding.versionId === versionId)
+      );
+      if (combosUsingVersion.length > 0) {
+        throw new Error(
+          `Cannot delete version ${versionId as string}: it is referenced by ${combosUsingVersion.length} combo(s).`
+        );
+      }
+
+      const removedVersion = snapshot.versions[index]!;
+      const nextSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        versions: sortById(snapshot.versions.filter((v) => v.id !== versionId)),
+      };
+
+      return {
+        snapshot: nextSnapshot,
+        result: removedVersion,
+        events: [
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'version:removed',
+            payload: {
+              projectId: this.projectId,
+              partId: removedVersion.partId,
+              versionId,
+              removedVersion,
+              snapshot: finalSnapshot,
+            },
+          }),
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
+      };
+    });
+
+    return cloneValue(result);
+  }
+
+  /**
+   * Deletes a part and all its versions from the project.
+   * Throws an error if the part is referenced by any combo.
+   */
+  async deletePart(partId: PartId): Promise<PartDefinition> {
+    const result = await this.commitMutation<PartDefinition>((snapshot) => {
+      const index = snapshot.parts.findIndex((part) => part.id === partId);
+      if (index === -1) {
+        throw new Error(`Part ${partId as string} does not exist.`);
+      }
+
+      // Check if part is referenced by any combo
+      const combosUsingPart = snapshot.combos.filter((combo) =>
+        combo.bindings.some((binding) => binding.partId === partId)
+      );
+      if (combosUsingPart.length > 0) {
+        throw new Error(
+          `Cannot delete part ${partId as string}: it is referenced by ${combosUsingPart.length} combo(s).`
+        );
+      }
+
+      const removedPart = snapshot.parts[index]!;
+      const nextSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        parts: sortById(snapshot.parts.filter((part) => part.id !== partId)),
+        versions: sortById(snapshot.versions.filter((version) => version.partId !== partId)),
+      };
+
+      return {
+        snapshot: nextSnapshot,
+        result: removedPart,
+        events: [
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'part:removed',
+            payload: {
+              projectId: this.projectId,
+              partId,
+              removedPart,
               snapshot: finalSnapshot,
             },
           }),

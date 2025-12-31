@@ -1,6 +1,7 @@
 import type { PartDefinition, PartVersion } from '../../models/part.js';
 import type { ProjectSnapshot } from '../../models/project.js';
-import type { PartId, PartVersionId, ProjectId } from '../../models/base.js';
+import type { ComboId, PartId, PartVersionId, ProjectId } from '../../models/base.js';
+import type { VersionCombo } from '../../models/combo.js';
 
 /**
  * Typed project lifecycle events emitted by the registry and handles.
@@ -33,6 +34,25 @@ export interface ProjectEventMap {
     readonly versionId: PartVersionId;
     readonly version: PartVersion;
     readonly previous: PartVersion;
+    readonly snapshot: ProjectSnapshot;
+  };
+  readonly 'part:removed': {
+    readonly projectId: ProjectId;
+    readonly partId: PartId;
+    readonly removedPart: PartDefinition;
+    readonly snapshot: ProjectSnapshot;
+  };
+  readonly 'version:removed': {
+    readonly projectId: ProjectId;
+    readonly partId: PartId;
+    readonly versionId: PartVersionId;
+    readonly removedVersion: PartVersion;
+    readonly snapshot: ProjectSnapshot;
+  };
+  readonly 'combo:removed': {
+    readonly projectId: ProjectId;
+    readonly comboId: ComboId;
+    readonly removedCombo: VersionCombo;
     readonly snapshot: ProjectSnapshot;
   };
 }

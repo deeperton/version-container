@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type {
   AdapterId,
+  ComboId,
   ISO8601Timestamp,
   PartId,
   PartVersionId,
@@ -268,5 +269,103 @@ describe('ProjectRegistry', () => {
     const retrieved = registry.getOpenProject(handle.projectId);
 
     expect(retrieved).toBe(handle);
+  });
+
+  describe('delete operations', () => {
+    it('deleteCombo delegates to handle correctly', async () => {
+      const registry = new ProjectRegistry({
+        storage: new InMemoryStorageProvider(),
+        clock: new TestClock(initialTime),
+      });
+
+      const handle = await registry.open({
+        name: 'Delete Combo',
+        parts: [
+          {
+            id: 'engine' as PartId,
+            name: 'Engine',
+            adapterId: 'adapter' as AdapterId,
+            versions: [
+              {
+                id: 'v1' as PartVersionId,
+                locator: { uri: 'memory://engine@1.0.0' },
+              },
+            ],
+          },
+        ],
+        combos: [
+          {
+            id: 'baseline' as ComboId,
+            name: 'Baseline',
+            bindings: [
+              {
+                partId: 'engine' as PartId,
+                versionId: 'v1' as PartVersionId,
+              },
+            ],
+          },
+        ],
+      });
+
+      const removed = await registry.deleteCombo(handle.projectId, 'baseline' as ComboId);
+      expect(removed.id).toBe('baseline' as ComboId);
+
+      const snapshot = await handle.getSnapshot();
+      expect(snapshot.combos).toHaveLength(0);
+    });
+
+    it('deletePartVersion delegates to handle correctly', async () => {
+      const registry = new ProjectRegistry({
+        storage: new InMemoryStorageProvider(),
+        clock: new TestClock(initialTime),
+      });
+
+      const handle = await registry.open({
+        name: 'Delete Version',
+        parts: [
+          {
+            id: 'engine' as PartId,
+            name: 'Engine',
+            adapterId: 'adapter' as AdapterId,
+            versions: [
+              {
+                id: 'v1' as PartVersionId,
+                locator: { uri: 'memory://engine@1.0.0' },
+              },
+            ],
+          },
+        ],
+      });
+
+      const removed = await registry.deletePartVersion(handle.projectId, 'v1' as PartVersionId);
+      expect(removed.id).toBe('v1' as PartVersionId);
+
+      const snapshot = await handle.getSnapshot();
+      expect(snapshot.versions).toHaveLength(0);
+    });
+
+    it('deletePart delegates to handle correctly', async () => {
+      const registry = new ProjectRegistry({
+        storage: new InMemoryStorageProvider(),
+        clock: new TestClock(initialTime),
+      });
+
+      const handle = await registry.open({
+        name: 'Delete Part',
+        parts: [
+          {
+            id: 'engine' as PartId,
+            name: 'Engine',
+            adapterId: 'adapter' as AdapterId,
+          },
+        ],
+      });
+
+      const removed = await registry.deletePart(handle.projectId, 'engine' as PartId);
+      expect(removed.id).toBe('engine' as PartId);
+
+      const snapshot = await handle.getSnapshot();
+      expect(snapshot.parts).toHaveLength(0);
+    });
   });
 });

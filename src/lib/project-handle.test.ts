@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { AdapterId, ISO8601Timestamp, PartId, PartVersionId, ProjectId } from '../models/base.js';
+import type {
+  AdapterId,
+  ComboId,
+  ISO8601Timestamp,
+  PartId,
+  PartVersionId,
+  ProjectId,
+} from '../models/base.js';
 import type { ProjectInit } from '../models/project.js';
 import { InMemoryStorageProvider } from '../storages/in-memory/in-memory-storage.js';
 import { buildProjectSnapshot } from './project-snapshot-builder.js';
@@ -398,5 +405,382 @@ describe('ProjectHandle', () => {
     const { handle } = await createHandle({ name: 'Adapters' }, clock);
 
     expect(handle.getAdapters()).toEqual([]);
+  });
+
+  describe('deleteCombo', () => {
+    it('deletes existing combo successfully', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Delete Combo',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      const removed = await handle.deleteCombo('baseline' as ComboId);
+      expect(removed.id).toBe('baseline' as ComboId);
+
+      const snapshot = await handle.getSnapshot();
+      expect(snapshot.combos).toHaveLength(0);
+    });
+
+    it('emits combo:removed event with correct payload', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle, events } = await createHandle(
+        {
+          name: 'Delete Combo Events',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      const listener = vi.fn();
+      events.subscribe('combo:removed', listener);
+      const updatedListener = vi.fn();
+      events.subscribe('project:updated', updatedListener);
+
+      await handle.deleteCombo('baseline' as ComboId);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      const [payload] = listener.mock.calls[0]!;
+      expect(payload.removedCombo.id).toBe('baseline' as ComboId);
+      expect(updatedListener).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws error when combo does not exist', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle({ name: 'No Combo' }, clock);
+
+      await expect(
+        handle.deleteCombo('non-existent' as ComboId)
+      ).rejects.toThrow(/does not exist/);
+    });
+  });
+
+  describe('deletePartVersion', () => {
+    it('deletes existing version successfully', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Delete Version',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+                {
+                  id: 'v2' as PartVersionId,
+                  locator: { uri: 'memory://engine@2.0.0' },
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      const removed = await handle.deletePartVersion('v1' as PartVersionId);
+      expect(removed.id).toBe('v1' as PartVersionId);
+
+      const snapshot = await handle.getSnapshot();
+      expect(snapshot.versions).toHaveLength(1);
+      expect(snapshot.versions[0]?.id).toBe('v2' as PartVersionId);
+    });
+
+    it('emits version:removed event with correct payload', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle, events } = await createHandle(
+        {
+          name: 'Delete Version Events',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      const listener = vi.fn();
+      events.subscribe('version:removed', listener);
+
+      await handle.deletePartVersion('v1' as PartVersionId);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      const [payload] = listener.mock.calls[0]!;
+      expect(payload.removedVersion.id).toBe('v1' as PartVersionId);
+      expect(payload.partId).toBe('engine' as PartId);
+    });
+
+    it('throws error when version does not exist', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle({ name: 'No Version' }, clock);
+
+      await expect(
+        handle.deletePartVersion('non-existent' as PartVersionId)
+      ).rejects.toThrow(/does not exist/);
+    });
+
+    it('throws error when version is referenced by combo', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Version In Combo',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      await expect(
+        handle.deletePartVersion('v1' as PartVersionId)
+      ).rejects.toThrow(/referenced by.*combo/);
+    });
+  });
+
+  describe('deletePart', () => {
+    it('deletes existing part successfully', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Delete Part',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+            {
+              id: 'wheels' as PartId,
+              name: 'Wheels',
+              adapterId: 'adapter' as AdapterId,
+            },
+          ],
+        },
+        clock
+      );
+
+      const removed = await handle.deletePart('engine' as PartId);
+      expect(removed.id).toBe('engine' as PartId);
+
+      const snapshot = await handle.getSnapshot();
+      expect(snapshot.parts).toHaveLength(1);
+      expect(snapshot.parts[0]?.id).toBe('wheels' as PartId);
+      expect(snapshot.versions).toHaveLength(0);
+    });
+
+    it('cascades to delete all versions of the part', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Cascade Versions',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+                {
+                  id: 'v2' as PartVersionId,
+                  locator: { uri: 'memory://engine@2.0.0' },
+                },
+                {
+                  id: 'v3' as PartVersionId,
+                  locator: { uri: 'memory://engine@3.0.0' },
+                },
+              ],
+            },
+            {
+              id: 'wheels' as PartId,
+              name: 'Wheels',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'w1' as PartVersionId,
+                  locator: { uri: 'memory://wheels@1.0.0' },
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      await handle.deletePart('engine' as PartId);
+
+      const snapshot = await handle.getSnapshot();
+      expect(snapshot.versions).toHaveLength(1);
+      expect(snapshot.versions[0]?.id).toBe('w1' as PartVersionId);
+    });
+
+    it('emits part:removed event with correct payload', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle, events } = await createHandle(
+        {
+          name: 'Delete Part Events',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+            },
+          ],
+        },
+        clock
+      );
+
+      const listener = vi.fn();
+      events.subscribe('part:removed', listener);
+
+      await handle.deletePart('engine' as PartId);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      const [payload] = listener.mock.calls[0]!;
+      expect(payload.removedPart.id).toBe('engine' as PartId);
+      expect(payload.partId).toBe('engine' as PartId);
+    });
+
+    it('throws error when part does not exist', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle({ name: 'No Part' }, clock);
+
+      await expect(
+        handle.deletePart('non-existent' as PartId)
+      ).rejects.toThrow(/does not exist/);
+    });
+
+    it('throws error when part is referenced by combo', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Part In Combo',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      await expect(
+        handle.deletePart('engine' as PartId)
+      ).rejects.toThrow(/referenced by.*combo/);
+    });
   });
 });
