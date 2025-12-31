@@ -1,10 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { AdapterId, ISO8601Timestamp, PartId, PartVersionId, ProjectId } from '../models/base.js';
+import type {
+  AdapterId,
+  ISO8601Timestamp,
+  PartId,
+  PartVersionId,
+  ProjectId,
+} from '../models/base.js';
 import { InMemoryStorageProvider } from '../storages/in-memory/in-memory-storage.js';
 import { ProjectRegistry } from './project-registry.js';
 import { TestClock } from './mocks/test-clock.js';
 import { FakeAdapter } from './mocks/fake-adapter.js';
+import { ProjectEventDispatcher } from './events/project-events.js';
 
 const initialTime = '2024-03-01T00:00:00.000Z' as ISO8601Timestamp;
 
@@ -127,5 +134,139 @@ describe('ProjectRegistry', () => {
     expect(snapshot.parts).toHaveLength(1);
     expect(snapshot.versions).toHaveLength(1);
     expect(snapshot.versions[0]?.label).toBe('1.0.1');
+  });
+
+  it('load with non-existent project ID throws error', async () => {
+    const registry = new ProjectRegistry({
+      storage: new InMemoryStorageProvider(),
+      clock: new TestClock(initialTime),
+    });
+
+    await expect(
+      registry.load('non-existent' as ProjectId)
+    ).rejects.toThrow(/could not be found/);
+  });
+
+  it('close on non-existent project returns without error', async () => {
+    const registry = new ProjectRegistry({
+      storage: new InMemoryStorageProvider(),
+      clock: new TestClock(initialTime),
+    });
+
+    await expect(
+      registry.close('non-existent' as ProjectId)
+    ).resolves.toBeUndefined();
+  });
+
+  it('close on already closed project is safe', async () => {
+    const registry = new ProjectRegistry({
+      storage: new InMemoryStorageProvider(),
+      clock: new TestClock(initialTime),
+    });
+
+    const handle = await registry.open({ name: 'Close Test' });
+    const projectId = handle.projectId;
+
+    await registry.close(projectId);
+    await expect(registry.close(projectId)).resolves.toBeUndefined();
+  });
+
+  it('addPart when part does not exist propagates error', async () => {
+    const registry = new ProjectRegistry({
+      storage: new InMemoryStorageProvider(),
+      clock: new TestClock(initialTime),
+    });
+
+    const handle = await registry.open({ name: 'Add Part' });
+
+    await expect(
+      registry.addPart(handle.projectId, {
+        id: 'first' as PartId,
+        name: 'First',
+        adapterId: 'adapter-test' as AdapterId,
+      })
+    ).resolves.toBeDefined();
+
+    await expect(
+      registry.addPart(handle.projectId, {
+        id: 'first' as PartId,
+        name: 'Duplicate',
+        adapterId: 'adapter-test' as AdapterId,
+      })
+    ).rejects.toThrow(/already exists/);
+  });
+
+  it('updatePart when part does not exist propagates error', async () => {
+    const registry = new ProjectRegistry({
+      storage: new InMemoryStorageProvider(),
+      clock: new TestClock(initialTime),
+    });
+
+    const handle = await registry.open({ name: 'Update Part' });
+
+    await expect(
+      registry.updatePart(handle.projectId, 'non-existent' as PartId, (part) => part)
+    ).rejects.toThrow(/does not exist/);
+  });
+
+  it('updatePartVersion when version does not exist propagates error', async () => {
+    const registry = new ProjectRegistry({
+      storage: new InMemoryStorageProvider(),
+      clock: new TestClock(initialTime),
+    });
+
+    const handle = await registry.open({ name: 'Update Version' });
+
+    await expect(
+      registry.updatePartVersion(handle.projectId, 'non-existent' as PartVersionId, (v) => v)
+    ).rejects.toThrow(/does not exist/);
+  });
+
+  it('constructor with custom event dispatcher uses it', async () => {
+    const storage = new InMemoryStorageProvider();
+    const clock = new TestClock(initialTime);
+    const events = new ProjectEventDispatcher();
+    const listener = vi.fn();
+
+    events.subscribe('project:created', listener);
+
+    const registry = new ProjectRegistry({ storage, clock, events });
+    await registry.open({ name: 'Custom Events' });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('constructor with custom clock uses it', async () => {
+    const storage = new InMemoryStorageProvider();
+    const clock = new TestClock(initialTime);
+
+    const registry = new ProjectRegistry({ storage, clock });
+    const handle = await registry.open({ name: 'Custom Clock' });
+    const snapshot = await handle.getSnapshot();
+
+    expect(snapshot.project.createdAt).toBe(initialTime);
+    expect(snapshot.project.updatedAt).toBe(initialTime);
+  });
+
+  it('getOpenProject returns undefined for non-open project', async () => {
+    const registry = new ProjectRegistry({
+      storage: new InMemoryStorageProvider(),
+      clock: new TestClock(initialTime),
+    });
+
+    const project = registry.getOpenProject('non-existent' as ProjectId);
+    expect(project).toBeUndefined();
+  });
+
+  it('getOpenProject returns handle for open project', async () => {
+    const registry = new ProjectRegistry({
+      storage: new InMemoryStorageProvider(),
+      clock: new TestClock(initialTime),
+    });
+
+    const handle = await registry.open({ name: 'Get Open' });
+    const retrieved = registry.getOpenProject(handle.projectId);
+
+    expect(retrieved).toBe(handle);
   });
 });

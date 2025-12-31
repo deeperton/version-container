@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { AdapterId, ISO8601Timestamp, PartId, PartVersionId } from '../models/base.js';
+import type { AdapterId, ISO8601Timestamp, PartId, PartVersionId, ProjectId } from '../models/base.js';
 import type { ProjectInit } from '../models/project.js';
 import { InMemoryStorageProvider } from '../storages/in-memory/in-memory-storage.js';
 import { buildProjectSnapshot } from './project-snapshot-builder.js';
@@ -216,5 +216,187 @@ describe('ProjectHandle', () => {
     const [payload] = updatedListener.mock.calls[0]!;
     expect(payload.version.label).toBe('1.0.1');
     expect(payload.previous.label).toBeUndefined();
+  });
+
+  it('refresh when project does not exist throws error', async () => {
+    const clock = new TestClock(initialTime);
+    const storage = new InMemoryStorageProvider();
+    const events = new ProjectEventDispatcher();
+
+    const handle = new ProjectHandle({
+      projectId: 'non-existent' as ProjectId,
+      storage,
+      adapters: [],
+      clock,
+      events,
+    });
+
+    await expect(handle.refresh()).rejects.toThrow(/does not exist in storage/);
+  });
+
+  it('updatePart attempting to change ID throws error', async () => {
+    const clock = new TestClock(initialTime);
+    const { handle } = await createHandle(
+      {
+        name: 'Update Part ID',
+        parts: [
+          {
+            id: 'engine' as PartId,
+            name: 'Engine Controller',
+            adapterId: 'adapter-in-memory' as AdapterId,
+          },
+        ],
+      },
+      clock
+    );
+
+    await expect(
+      handle.updatePart('engine' as PartId, (part) => ({
+        ...part,
+        id: 'new-id' as PartId,
+      }))
+    ).rejects.toThrow(/identifier cannot be changed/);
+  });
+
+  it('updatePartVersion attempting to change ID throws error', async () => {
+    const clock = new TestClock(initialTime);
+    const { handle } = await createHandle(
+      {
+        name: 'Update Version ID',
+        parts: [
+          {
+            id: 'engine' as PartId,
+            name: 'Engine Controller',
+            adapterId: 'adapter-in-memory' as AdapterId,
+            versions: [
+              {
+                id: 'v1' as PartVersionId,
+                locator: { uri: 'memory://engine@1.0.0' },
+              },
+            ],
+          },
+        ],
+      },
+      clock
+    );
+
+    await expect(
+      handle.updatePartVersion('v1' as PartVersionId, (version) => ({
+        ...version,
+        id: 'v2' as PartVersionId,
+      }))
+    ).rejects.toThrow(/identifier cannot be changed/);
+  });
+
+  it('updatePartVersion attempting to change partId throws error', async () => {
+    const clock = new TestClock(initialTime);
+    const { handle } = await createHandle(
+      {
+        name: 'Reassign Version',
+        parts: [
+          {
+            id: 'engine' as PartId,
+            name: 'Engine Controller',
+            adapterId: 'adapter-in-memory' as AdapterId,
+            versions: [
+              {
+                id: 'v1' as PartVersionId,
+                locator: { uri: 'memory://engine@1.0.0' },
+              },
+            ],
+          },
+        ],
+      },
+      clock
+    );
+
+    await expect(
+      handle.updatePartVersion('v1' as PartVersionId, (version) => ({
+        ...version,
+        partId: 'other-part' as PartId,
+      }))
+    ).rejects.toThrow(/cannot be reassigned to a different part/);
+  });
+
+  it('addPartVersion on non-existent part throws error', async () => {
+    const clock = new TestClock(initialTime);
+    const { handle } = await createHandle({ name: 'No Part' }, clock);
+
+    await expect(
+      handle.addPartVersion('non-existent' as PartId, {
+        id: 'v1' as PartVersionId,
+        locator: { uri: 'memory://test@1.0.0' },
+      })
+    ).rejects.toThrow(/does not exist/);
+  });
+
+  it('updatePart on non-existent part throws error', async () => {
+    const clock = new TestClock(initialTime);
+    const { handle } = await createHandle({ name: 'No Part' }, clock);
+
+    await expect(
+      handle.updatePart('non-existent' as PartId, (part) => part)
+    ).rejects.toThrow(/does not exist/);
+  });
+
+  it('updatePartVersion on non-existent version throws error', async () => {
+    const clock = new TestClock(initialTime);
+    const { handle } = await createHandle({ name: 'No Version' }, clock);
+
+    await expect(
+      handle.updatePartVersion('non-existent' as PartVersionId, (version) => version)
+    ).rejects.toThrow(/does not exist/);
+  });
+
+  it('close with save false does not persist', async () => {
+    const clock = new TestClock(initialTime);
+    const { handle, storage } = await createHandle({ name: 'No Save' }, clock);
+
+    await handle.update((snapshot) => ({
+      ...snapshot,
+      project: { ...snapshot.project, description: 'Unsaved' },
+    }));
+
+    expect(handle.isDirty()).toBe(true);
+
+    await handle.close({ save: false });
+
+    const reloaded = await storage.loadSnapshot(handle.projectId);
+    expect(reloaded?.project.description).toBeUndefined();
+  });
+
+  it('multiple concurrent close calls are safe', async () => {
+    const clock = new TestClock(initialTime);
+    const { handle } = await createHandle({ name: 'Close Race' }, clock);
+
+    await Promise.all([handle.close(), handle.close()]);
+
+    const closed = await handle.close();
+    expect(closed).toBeUndefined();
+  });
+
+  it('isDirty returns false after save', async () => {
+    const clock = new TestClock(initialTime);
+    const { handle } = await createHandle({ name: 'Dirty Check' }, clock);
+
+    expect(handle.isDirty()).toBe(false);
+
+    await handle.update((snapshot) => ({
+      ...snapshot,
+      project: { ...snapshot.project, description: 'Updated' },
+    }));
+
+    expect(handle.isDirty()).toBe(true);
+
+    await handle.save();
+
+    expect(handle.isDirty()).toBe(false);
+  });
+
+  it('getAdapters returns the registered adapters', async () => {
+    const clock = new TestClock(initialTime);
+    const { handle } = await createHandle({ name: 'Adapters' }, clock);
+
+    expect(handle.getAdapters()).toEqual([]);
   });
 });
