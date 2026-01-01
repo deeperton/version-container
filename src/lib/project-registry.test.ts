@@ -368,4 +368,91 @@ describe('ProjectRegistry', () => {
       expect(snapshot.parts).toHaveLength(0);
     });
   });
+
+  describe('add and update combo operations', () => {
+    it('addCombo delegates to handle correctly', async () => {
+      const registry = new ProjectRegistry({
+        storage: new InMemoryStorageProvider(),
+        clock: new TestClock(initialTime),
+      });
+
+      const handle = await registry.open({
+        name: 'Add Combo',
+        parts: [
+          {
+            id: 'engine' as PartId,
+            name: 'Engine',
+            adapterId: 'adapter' as AdapterId,
+            versions: [
+              {
+                id: 'v1' as PartVersionId,
+                locator: { uri: 'memory://engine@1.0.0' },
+              },
+            ],
+          },
+        ],
+      });
+
+      const combo = await registry.addCombo(handle.projectId, {
+        name: 'Production',
+        bindings: [
+          {
+            partId: 'engine' as PartId,
+            versionId: 'v1' as PartVersionId,
+          },
+        ],
+      });
+
+      expect(combo.name).toBe('Production');
+
+      const snapshot = await handle.getSnapshot();
+      expect(snapshot.combos).toHaveLength(1);
+    });
+
+    it('updateCombo delegates to handle correctly', async () => {
+      const registry = new ProjectRegistry({
+        storage: new InMemoryStorageProvider(),
+        clock: new TestClock(initialTime),
+      });
+
+      const handle = await registry.open({
+        name: 'Update Combo',
+        parts: [
+          {
+            id: 'engine' as PartId,
+            name: 'Engine',
+            adapterId: 'adapter' as AdapterId,
+            versions: [
+              {
+                id: 'v1' as PartVersionId,
+                locator: { uri: 'memory://engine@1.0.0' },
+              },
+            ],
+          },
+        ],
+        combos: [
+          {
+            id: 'baseline' as ComboId,
+            name: 'Baseline',
+            bindings: [
+              {
+                partId: 'engine' as PartId,
+                versionId: 'v1' as PartVersionId,
+              },
+            ],
+          },
+        ],
+      });
+
+      const updated = await registry.updateCombo(handle.projectId, 'baseline' as ComboId, (combo) => ({
+        ...combo,
+        name: 'Updated Baseline',
+      }));
+
+      expect(updated.name).toBe('Updated Baseline');
+
+      const snapshot = await handle.getSnapshot();
+      expect(snapshot.combos[0]?.name).toBe('Updated Baseline');
+    });
+  });
 });

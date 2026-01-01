@@ -783,4 +783,715 @@ describe('ProjectHandle', () => {
       ).rejects.toThrow(/referenced by.*combo/);
     });
   });
+
+  describe('addCombo', () => {
+    it('adds combo with generated ID successfully', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Add Combo',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      const combo = await handle.addCombo({
+        name: 'Production',
+        bindings: [
+          {
+            partId: 'engine' as PartId,
+            versionId: 'v1' as PartVersionId,
+          },
+        ],
+      });
+
+      expect(combo.id).toBeDefined();
+      expect(combo.name).toBe('Production');
+      expect(combo.bindings).toHaveLength(1);
+      expect(combo.createdAt).toBe(initialTime);
+      expect(combo.updatedAt).toBe(initialTime);
+    });
+
+    it('adds combo with provided ID successfully', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Add Combo With ID',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      const combo = await handle.addCombo({
+        id: 'production' as ComboId,
+        name: 'Production',
+        bindings: [
+          {
+            partId: 'engine' as PartId,
+            versionId: 'v1' as PartVersionId,
+          },
+        ],
+      });
+
+      expect(combo.id).toBe('production' as ComboId);
+    });
+
+    it('emits combo:added event with correct payload', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle, events } = await createHandle(
+        {
+          name: 'Combo Added Event',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      const comboAdded = vi.fn();
+      events.subscribe('combo:added', comboAdded);
+
+      await handle.addCombo({
+        name: 'Production',
+        bindings: [
+          {
+            partId: 'engine' as PartId,
+            versionId: 'v1' as PartVersionId,
+          },
+        ],
+      });
+
+      expect(comboAdded).toHaveBeenCalledTimes(1);
+      const [payload] = comboAdded.mock.calls[0]!;
+      expect(payload.combo.name).toBe('Production');
+      expect(payload.projectId).toBeDefined();
+    });
+
+    it('emits project:updated event', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle, events } = await createHandle(
+        {
+          name: 'Project Updated On Combo Add',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      const projectUpdated = vi.fn();
+      events.subscribe('project:updated', projectUpdated);
+
+      await handle.addCombo({
+        name: 'Production',
+        bindings: [
+          {
+            partId: 'engine' as PartId,
+            versionId: 'v1' as PartVersionId,
+          },
+        ],
+      });
+
+      expect(projectUpdated).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws error when combo ID already exists', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Duplicate Combo',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'production' as ComboId,
+              name: 'Production',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      await expect(
+        handle.addCombo({
+          id: 'production' as ComboId,
+          name: 'Duplicate',
+          bindings: [
+            {
+              partId: 'engine' as PartId,
+              versionId: 'v1' as PartVersionId,
+            },
+          ],
+        })
+      ).rejects.toThrow(/already exists/);
+    });
+
+    it('throws error when binding references non-existent part', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle({ name: 'No Part' }, clock);
+
+      await expect(
+        handle.addCombo({
+          name: 'Invalid',
+          bindings: [
+            {
+              partId: 'non-existent' as PartId,
+              versionId: 'v1' as PartVersionId,
+            },
+          ],
+        })
+      ).rejects.toThrow(/Unknown part referenced/);
+    });
+
+    it('throws error when binding references non-existent version', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'No Version',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+            },
+          ],
+        },
+        clock
+      );
+
+      await expect(
+        handle.addCombo({
+          name: 'Invalid',
+          bindings: [
+            {
+              partId: 'engine' as PartId,
+              versionId: 'non-existent' as PartVersionId,
+            },
+          ],
+        })
+      ).rejects.toThrow(/Unknown version referenced/);
+    });
+
+    it('throws error when version does not belong to specified part', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Wrong Part',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+            {
+              id: 'wheels' as PartId,
+              name: 'Wheels',
+              adapterId: 'adapter' as AdapterId,
+            },
+          ],
+        },
+        clock
+      );
+
+      await expect(
+        handle.addCombo({
+          name: 'Invalid',
+          bindings: [
+            {
+              partId: 'wheels' as PartId,
+              versionId: 'v1' as PartVersionId,
+            },
+          ],
+        })
+      ).rejects.toThrow(/does not belong to part/);
+    });
+
+    it('snapshot contains newly added combo', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Snapshot Contains Combo',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      await handle.addCombo({
+        name: 'Production',
+        bindings: [
+          {
+            partId: 'engine' as PartId,
+            versionId: 'v1' as PartVersionId,
+          },
+        ],
+      });
+
+      const snapshot = await handle.getSnapshot();
+      expect(snapshot.combos).toHaveLength(1);
+      expect(snapshot.combos[0]?.name).toBe('Production');
+    });
+  });
+
+  describe('updateCombo', () => {
+    it('updates existing combo name successfully', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Update Combo Name',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      const updated = await handle.updateCombo('baseline' as ComboId, (combo) => ({
+        ...combo,
+        name: 'Updated Baseline',
+      }));
+
+      expect(updated.name).toBe('Updated Baseline');
+      expect(updated.id).toBe('baseline' as ComboId);
+    });
+
+    it('updates combo bindings successfully', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Update Combo Bindings',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+                {
+                  id: 'v2' as PartVersionId,
+                  locator: { uri: 'memory://engine@2.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      const updated = await handle.updateCombo('baseline' as ComboId, (combo) => ({
+        ...combo,
+        bindings: [
+          {
+            partId: 'engine' as PartId,
+            versionId: 'v2' as PartVersionId,
+          },
+        ],
+      }));
+
+      expect(updated.bindings).toHaveLength(1);
+      expect(updated.bindings[0]?.versionId).toBe('v2' as PartVersionId);
+    });
+
+    it('emits combo:updated event with correct payload including previous', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle, events } = await createHandle(
+        {
+          name: 'Combo Updated Event',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      const comboUpdated = vi.fn();
+      events.subscribe('combo:updated', comboUpdated);
+
+      await handle.updateCombo('baseline' as ComboId, (combo) => ({
+        ...combo,
+        name: 'Updated',
+      }));
+
+      expect(comboUpdated).toHaveBeenCalledTimes(1);
+      const [payload] = comboUpdated.mock.calls[0]!;
+      expect(payload.combo.name).toBe('Updated');
+      expect(payload.previous.name).toBe('Baseline');
+      expect(payload.projectId).toBeDefined();
+    });
+
+    it('emits project:updated event', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle, events } = await createHandle(
+        {
+          name: 'Project Updated On Combo Update',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      const projectUpdated = vi.fn();
+      events.subscribe('project:updated', projectUpdated);
+
+      await handle.updateCombo('baseline' as ComboId, (combo) => ({
+        ...combo,
+        name: 'Updated',
+      }));
+
+      expect(projectUpdated).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws error when combo does not exist', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle({ name: 'No Combo' }, clock);
+
+      await expect(
+        handle.updateCombo('non-existent' as ComboId, (combo) => combo)
+      ).rejects.toThrow(/does not exist/);
+    });
+
+    it('throws error when ID changes during update', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Cannot Change ID',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      await expect(
+        handle.updateCombo('baseline' as ComboId, (combo) => ({
+          ...combo,
+          id: 'different' as ComboId,
+        }))
+      ).rejects.toThrow(/identifier cannot be changed/);
+    });
+
+    it('throws error when new bindings reference non-existent part', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Invalid Binding Part',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      await expect(
+        handle.updateCombo('baseline' as ComboId, (combo) => ({
+          ...combo,
+          bindings: [
+            {
+              partId: 'non-existent' as PartId,
+              versionId: 'v1' as PartVersionId,
+            },
+          ],
+        }))
+      ).rejects.toThrow(/Unknown part referenced/);
+    });
+
+    it('throws error when new bindings reference non-existent version', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Invalid Binding Version',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      await expect(
+        handle.updateCombo('baseline' as ComboId, (combo) => ({
+          ...combo,
+          bindings: [
+            {
+              partId: 'engine' as PartId,
+              versionId: 'non-existent' as PartVersionId,
+            },
+          ],
+        }))
+      ).rejects.toThrow(/Unknown version referenced/);
+    });
+
+    it('updatedAt changes but createdAt remains unchanged', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Timestamps Test',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      const snapshotBefore = await handle.getSnapshot();
+      const originalCreatedAt = snapshotBefore.combos[0]!.createdAt;
+
+      clock.advance('2024-02-01T13:00:00.000Z' as ISO8601Timestamp);
+
+      const updated = await handle.updateCombo('baseline' as ComboId, (combo) => ({
+        ...combo,
+        name: 'Updated',
+      }));
+
+      expect(updated.createdAt).toBe(originalCreatedAt);
+      expect(updated.updatedAt).toBe('2024-02-01T13:00:00.000Z' as ISO8601Timestamp);
+    });
+  });
 });

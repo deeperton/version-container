@@ -2,7 +2,7 @@ import type { PartAdapter, StorageProvider } from '../models/adapter.js';
 import type { ProjectInit, ProjectSnapshot } from '../models/project.js';
 import type { AdapterId, ComboId, PartId, PartVersionId, ProjectId } from '../models/base.js';
 import type { PartDefinition, PartInit, PartVersion, PartVersionInit } from '../models/part.js';
-import type { VersionCombo } from '../models/combo.js';
+import type { VersionCombo, VersionComboInit } from '../models/combo.js';
 import { SystemClock, type Clock } from './clock.js';
 import { buildProjectSnapshot } from './project-snapshot-builder.js';
 import { ProjectHandle } from './project-handle.js';
@@ -180,6 +180,26 @@ export class ProjectRegistry {
   async deletePart(projectId: ProjectId, partId: PartId): Promise<PartDefinition> {
     const handle = await this.load(projectId);
     return handle.deletePart(partId);
+  }
+
+  /**
+   * Adds a new combo to the specified project.
+   */
+  async addCombo(projectId: ProjectId, comboInit: VersionComboInit): Promise<VersionCombo> {
+    const handle = await this.load(projectId);
+    return handle.addCombo(comboInit);
+  }
+
+  /**
+   * Updates an existing combo in the specified project.
+   */
+  async updateCombo(
+    projectId: ProjectId,
+    comboId: ComboId,
+    mutator: (combo: VersionCombo) => VersionCombo
+  ): Promise<VersionCombo> {
+    const handle = await this.load(projectId);
+    return handle.updateCombo(comboId, mutator);
   }
 
   /**

@@ -55,6 +55,17 @@ export interface ProjectEventMap {
     readonly removedCombo: VersionCombo;
     readonly snapshot: ProjectSnapshot;
   };
+  readonly 'combo:added': {
+    readonly projectId: ProjectId;
+    readonly combo: VersionCombo;
+    readonly snapshot: ProjectSnapshot;
+  };
+  readonly 'combo:updated': {
+    readonly projectId: ProjectId;
+    readonly combo: VersionCombo;
+    readonly previous: VersionCombo;
+    readonly snapshot: ProjectSnapshot;
+  };
 }
 
 export type ProjectEventName = keyof ProjectEventMap;

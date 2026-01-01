@@ -1,8 +1,9 @@
 import type { PartAdapter, StorageProvider } from '../models/adapter.js';
 import type { PartDefinition, PartInit, PartVersion, PartVersionInit } from '../models/part.js';
+import type { VersionBinding } from '../models/part.js';
 import type { ProjectSnapshot } from '../models/project.js';
 import type { ComboId, PartId, PartVersionId, ProjectId } from '../models/base.js';
-import type { VersionCombo } from '../models/combo.js';
+import type { VersionCombo, VersionComboInit } from '../models/combo.js';
 import { cloneValue } from './utils/clone.js';
 import type { Clock } from './clock.js';
 import { AsyncMutex } from './utils/async-mutex.js';
@@ -12,7 +13,7 @@ import {
   type ProjectEventMap,
   type ProjectEventName,
 } from './events/project-events.js';
-import { createPartId, createPartVersionId } from './ids.js';
+import { createComboId, createPartId, createPartVersionId } from './ids.js';
 
 interface ProjectHandleOptions {
   readonly projectId: ProjectId;
@@ -519,6 +520,118 @@ export class ProjectHandle {
   }
 
   /**
+   * Adds a new combo to the project.
+   */
+  async addCombo(comboInit: VersionComboInit): Promise<VersionCombo> {
+    const result = await this.commitMutation<VersionCombo>((snapshot) => {
+      const comboId = createComboId(comboInit.id);
+      if (snapshot.combos.some((existing) => existing.id === comboId)) {
+        throw new Error(`Combo ${comboId as string} already exists in project.`);
+      }
+
+      // Validate all bindings reference existing parts and versions
+      this.validateBindings(comboInit.bindings, snapshot);
+
+      const timestamp = this.clock.now();
+      const combo: VersionCombo = {
+        id: comboId,
+        name: comboInit.name,
+        description: comboInit.description,
+        bindings: comboInit.bindings,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        metadata: comboInit.metadata,
+      };
+
+      const nextSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        combos: sortById([...snapshot.combos, combo]),
+      };
+
+      return {
+        snapshot: nextSnapshot,
+        result: combo,
+        events: [
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'combo:added',
+            payload: {
+              projectId: this.projectId,
+              combo,
+              snapshot: finalSnapshot,
+            },
+          }),
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
+      };
+    });
+
+    return cloneValue(result);
+  }
+
+  /**
+   * Updates an existing combo.
+   */
+  async updateCombo(
+    comboId: ComboId,
+    mutator: (combo: VersionCombo) => VersionCombo
+  ): Promise<VersionCombo> {
+    const result = await this.commitMutation<VersionCombo>((snapshot) => {
+      const index = snapshot.combos.findIndex((combo) => combo.id === comboId);
+      if (index === -1) {
+        throw new Error(`Combo ${comboId as string} does not exist.`);
+      }
+
+      const previous = snapshot.combos[index]!;
+      const nextCombo = mutator(previous);
+
+      if (nextCombo.id !== previous.id) {
+        throw new Error('Combo identifier cannot be changed during update.');
+      }
+
+      // Validate all bindings reference existing parts and versions
+      this.validateBindings(nextCombo.bindings, snapshot);
+
+      const combo: VersionCombo = {
+        ...nextCombo,
+        updatedAt: this.clock.now(),
+      };
+
+      const combos = [...snapshot.combos];
+      combos[index] = combo;
+
+      const nextSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        combos: sortById(combos),
+      };
+
+      return {
+        snapshot: nextSnapshot,
+        result: combo,
+        events: [
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'combo:updated',
+            payload: {
+              projectId: this.projectId,
+              combo,
+              previous,
+              snapshot: finalSnapshot,
+            },
+          }),
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
+      };
+    });
+
+    return cloneValue(result);
+  }
+
+  /**
    * Closes the handle, optionally flushing pending changes to storage.
    */
   async close(options: { save?: boolean } = {}): Promise<void> {
@@ -557,6 +670,26 @@ export class ProjectHandle {
   private assertOpen(): void {
     if (this.closed) {
       throw new Error(`Project ${this.projectId as string} has been closed.`);
+    }
+  }
+
+  private validateBindings(bindings: readonly VersionBinding[], snapshot: ProjectSnapshot): void {
+    const partIds = new Set(snapshot.parts.map((p) => p.id));
+    const versionToPart = new Map(snapshot.versions.map((v) => [v.id, v.partId]));
+
+    for (const binding of bindings) {
+      if (!partIds.has(binding.partId)) {
+        throw new Error(`Unknown part referenced: ${binding.partId as string}`);
+      }
+      const owningPartId = versionToPart.get(binding.versionId);
+      if (!owningPartId) {
+        throw new Error(`Unknown version referenced: ${binding.versionId as string}`);
+      }
+      if (owningPartId !== binding.partId) {
+        throw new Error(
+          `Version ${binding.versionId as string} does not belong to part ${binding.partId as string}`
+        );
+      }
     }
   }
 
