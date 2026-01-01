@@ -455,4 +455,90 @@ describe('ProjectRegistry', () => {
       expect(snapshot.combos[0]?.name).toBe('Updated Baseline');
     });
   });
+
+  describe('query method delegation', () => {
+    it('findParts delegates to handle correctly', async () => {
+      const registry = new ProjectRegistry({
+        storage: new InMemoryStorageProvider(),
+        clock: new TestClock(initialTime),
+      });
+
+      const handle = await registry.open({
+        name: 'Query Parts',
+        parts: [
+          {
+            id: 'engine' as PartId,
+            name: 'Engine',
+            adapterId: 'adapter-1' as AdapterId,
+            tags: ['critical'],
+          },
+          {
+            id: 'wheels' as PartId,
+            name: 'Wheels',
+            adapterId: 'adapter-2' as AdapterId,
+          },
+        ],
+      });
+
+      const ids = await registry.findParts(handle.projectId, { adapterId: 'adapter-1' as AdapterId });
+      expect(ids).toHaveLength(1);
+      expect(ids[0]).toBe('engine' as PartId);
+    });
+
+    it('getPartSummary delegates to handle correctly', async () => {
+      const registry = new ProjectRegistry({
+        storage: new InMemoryStorageProvider(),
+        clock: new TestClock(initialTime),
+      });
+
+      const handle = await registry.open({
+        name: 'Get Summary',
+        parts: [
+          {
+            id: 'engine' as PartId,
+            name: 'Engine Controller',
+            adapterId: 'adapter' as AdapterId,
+          },
+        ],
+      });
+
+      const summary = await registry.getPartSummary(handle.projectId, 'engine' as PartId);
+      expect(summary).toEqual({
+        id: 'engine' as PartId,
+        name: 'Engine Controller',
+        description: undefined,
+      });
+    });
+
+    it('getVersionsByPartId delegates to handle correctly', async () => {
+      const registry = new ProjectRegistry({
+        storage: new InMemoryStorageProvider(),
+        clock: new TestClock(initialTime),
+      });
+
+      const handle = await registry.open({
+        name: 'Get Versions',
+        parts: [
+          {
+            id: 'engine' as PartId,
+            name: 'Engine',
+            adapterId: 'adapter' as AdapterId,
+            versions: [
+              {
+                id: 'v1' as PartVersionId,
+                locator: { uri: 'memory://engine@1.0.0' },
+              },
+              {
+                id: 'v2' as PartVersionId,
+                locator: { uri: 'memory://engine@2.0.0' },
+              },
+            ],
+          },
+        ],
+      });
+
+      const ids = await registry.getVersionsByPartId(handle.projectId, 'engine' as PartId);
+      expect(ids).toHaveLength(2);
+    });
+  });
 });

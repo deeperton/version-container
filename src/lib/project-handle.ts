@@ -4,6 +4,14 @@ import type { VersionBinding } from '../models/part.js';
 import type { ProjectSnapshot } from '../models/project.js';
 import type { ComboId, PartId, PartVersionId, ProjectId } from '../models/base.js';
 import type { VersionCombo, VersionComboInit } from '../models/combo.js';
+import type {
+  ComboFilter,
+  ComboSummary,
+  PartFilter,
+  PartSummary,
+  VersionFilter,
+  VersionSummary,
+} from '../models/queries.js';
 import { cloneValue } from './utils/clone.js';
 import type { Clock } from './clock.js';
 import { AsyncMutex } from './utils/async-mutex.js';
@@ -84,6 +92,213 @@ export class ProjectHandle {
    */
   getAdapters(): readonly PartAdapter[] {
     return this.adapters;
+  }
+
+  /**
+   * Finds part IDs matching the given filter.
+   * Returns all part IDs if no filter is provided.
+   */
+  findParts(filter?: PartFilter): readonly PartId[] {
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return [];
+    }
+
+    return snapshot.parts
+      .filter((part) => {
+        if (filter?.adapterId !== undefined && part.adapterId !== filter.adapterId) {
+          return false;
+        }
+        if (filter?.tags && filter.tags.length > 0) {
+          if (!part.tags || !filter.tags.some((tag) => part.tags!.includes(tag))) {
+            return false;
+          }
+        }
+        if (filter?.metadata) {
+          if (!part.metadata) {
+            return false;
+          }
+          for (const [key, value] of Object.entries(filter.metadata)) {
+            if (part.metadata[key] !== value) {
+              return false;
+            }
+          }
+        }
+        return true;
+      })
+      .map((part) => part.id);
+  }
+
+  /**
+   * Finds version IDs matching the given filter.
+   * Returns all version IDs if no filter is provided.
+   */
+  findVersions(filter?: VersionFilter): readonly PartVersionId[] {
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return [];
+    }
+
+    return snapshot.versions
+      .filter((version) => {
+        if (filter?.partId !== undefined && version.partId !== filter.partId) {
+          return false;
+        }
+        if (filter?.label !== undefined && version.label !== filter.label) {
+          return false;
+        }
+        if (filter?.metadata) {
+          if (!version.metadata) {
+            return false;
+          }
+          for (const [key, value] of Object.entries(filter.metadata)) {
+            if (version.metadata[key] !== value) {
+              return false;
+            }
+          }
+        }
+        return true;
+      })
+      .map((version) => version.id);
+  }
+
+  /**
+   * Finds combo IDs matching the given filter.
+   * Returns all combo IDs if no filter is provided.
+   */
+  findCombos(filter?: ComboFilter): readonly ComboId[] {
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return [];
+    }
+
+    return snapshot.combos
+      .filter((combo) => {
+        if (filter?.partId !== undefined) {
+          if (!combo.bindings.some((b) => b.partId === filter.partId)) {
+            return false;
+          }
+        }
+        if (filter?.versionId !== undefined) {
+          if (!combo.bindings.some((b) => b.versionId === filter.versionId)) {
+            return false;
+          }
+        }
+        if (filter?.metadata) {
+          if (!combo.metadata) {
+            return false;
+          }
+          for (const [key, value] of Object.entries(filter.metadata)) {
+            if (combo.metadata[key] !== value) {
+              return false;
+            }
+          }
+        }
+        return true;
+      })
+      .map((combo) => combo.id);
+  }
+
+  /**
+   * Gets a part by ID, or undefined if not found.
+   */
+  getPartById(id: PartId): PartDefinition | undefined {
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return undefined;
+    }
+    const part = snapshot.parts.find((p) => p.id === id);
+    return part ? cloneValue(part) : undefined;
+  }
+
+  /**
+   * Gets a version by ID, or undefined if not found.
+   */
+  getVersionById(id: PartVersionId): PartVersion | undefined {
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return undefined;
+    }
+    const version = snapshot.versions.find((v) => v.id === id);
+    return version ? cloneValue(version) : undefined;
+  }
+
+  /**
+   * Gets a combo by ID, or undefined if not found.
+   */
+  getComboById(id: ComboId): VersionCombo | undefined {
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return undefined;
+    }
+    const combo = snapshot.combos.find((c) => c.id === id);
+    return combo ? cloneValue(combo) : undefined;
+  }
+
+  /**
+   * Gets a lightweight part summary by ID.
+   */
+  getPartSummary(id: PartId): PartSummary | undefined {
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return undefined;
+    }
+    const part = snapshot.parts.find((p) => p.id === id);
+    if (!part) {
+      return undefined;
+    }
+    return { id: part.id, name: part.name, description: part.description };
+  }
+
+  /**
+   * Gets a lightweight version summary by ID.
+   */
+  getVersionSummary(id: PartVersionId): VersionSummary | undefined {
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return undefined;
+    }
+    const version = snapshot.versions.find((v) => v.id === id);
+    if (!version) {
+      return undefined;
+    }
+    return { id: version.id, label: version.label };
+  }
+
+  /**
+   * Gets a lightweight combo summary by ID.
+   */
+  getComboSummary(id: ComboId): ComboSummary | undefined {
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return undefined;
+    }
+    const combo = snapshot.combos.find((c) => c.id === id);
+    if (!combo) {
+      return undefined;
+    }
+    return { id: combo.id, name: combo.name, description: combo.description };
+  }
+
+  /**
+   * Gets all version IDs for a given part.
+   */
+  getVersionsByPartId(partId: PartId): readonly PartVersionId[] {
+    return this.findVersions({ partId });
+  }
+
+  /**
+   * Gets all combo IDs that reference a given part.
+   */
+  getCombosByPartId(partId: PartId): readonly ComboId[] {
+    return this.findCombos({ partId });
+  }
+
+  /**
+   * Gets all combo IDs that reference a given version.
+   */
+  getCombosByVersionId(versionId: PartVersionId): readonly ComboId[] {
+    return this.findCombos({ versionId });
   }
 
   /**

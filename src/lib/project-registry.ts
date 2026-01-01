@@ -3,6 +3,14 @@ import type { ProjectInit, ProjectSnapshot } from '../models/project.js';
 import type { AdapterId, ComboId, PartId, PartVersionId, ProjectId } from '../models/base.js';
 import type { PartDefinition, PartInit, PartVersion, PartVersionInit } from '../models/part.js';
 import type { VersionCombo, VersionComboInit } from '../models/combo.js';
+import type {
+  ComboFilter,
+  ComboSummary,
+  PartFilter,
+  PartSummary,
+  VersionFilter,
+  VersionSummary,
+} from '../models/queries.js';
 import { SystemClock, type Clock } from './clock.js';
 import { buildProjectSnapshot } from './project-snapshot-builder.js';
 import { ProjectHandle } from './project-handle.js';
@@ -214,6 +222,102 @@ export class ProjectRegistry {
    */
   getEventDispatcher(): ProjectEventDispatcher {
     return this.events;
+  }
+
+  /**
+   * Finds part IDs matching the given filter.
+   */
+  async findParts(projectId: ProjectId, filter?: PartFilter): Promise<readonly PartId[]> {
+    const handle = await this.load(projectId);
+    return handle.findParts(filter);
+  }
+
+  /**
+   * Finds version IDs matching the given filter.
+   */
+  async findVersions(projectId: ProjectId, filter?: VersionFilter): Promise<readonly PartVersionId[]> {
+    const handle = await this.load(projectId);
+    return handle.findVersions(filter);
+  }
+
+  /**
+   * Finds combo IDs matching the given filter.
+   */
+  async findCombos(projectId: ProjectId, filter?: ComboFilter): Promise<readonly ComboId[]> {
+    const handle = await this.load(projectId);
+    return handle.findCombos(filter);
+  }
+
+  /**
+   * Gets a part by ID.
+   */
+  async getPartById(projectId: ProjectId, id: PartId): Promise<PartDefinition | undefined> {
+    const handle = await this.load(projectId);
+    return handle.getPartById(id);
+  }
+
+  /**
+   * Gets a version by ID.
+   */
+  async getVersionById(projectId: ProjectId, id: PartVersionId): Promise<PartVersion | undefined> {
+    const handle = await this.load(projectId);
+    return handle.getVersionById(id);
+  }
+
+  /**
+   * Gets a combo by ID.
+   */
+  async getComboById(projectId: ProjectId, id: ComboId): Promise<VersionCombo | undefined> {
+    const handle = await this.load(projectId);
+    return handle.getComboById(id);
+  }
+
+  /**
+   * Gets a part summary by ID.
+   */
+  async getPartSummary(projectId: ProjectId, id: PartId): Promise<PartSummary | undefined> {
+    const handle = await this.load(projectId);
+    return handle.getPartSummary(id);
+  }
+
+  /**
+   * Gets a version summary by ID.
+   */
+  async getVersionSummary(projectId: ProjectId, id: PartVersionId): Promise<VersionSummary | undefined> {
+    const handle = await this.load(projectId);
+    return handle.getVersionSummary(id);
+  }
+
+  /**
+   * Gets a combo summary by ID.
+   */
+  async getComboSummary(projectId: ProjectId, id: ComboId): Promise<ComboSummary | undefined> {
+    const handle = await this.load(projectId);
+    return handle.getComboSummary(id);
+  }
+
+  /**
+   * Gets all version IDs for a given part.
+   */
+  async getVersionsByPartId(projectId: ProjectId, partId: PartId): Promise<readonly PartVersionId[]> {
+    const handle = await this.load(projectId);
+    return handle.getVersionsByPartId(partId);
+  }
+
+  /**
+   * Gets all combo IDs that reference a given part.
+   */
+  async getCombosByPartId(projectId: ProjectId, partId: PartId): Promise<readonly ComboId[]> {
+    const handle = await this.load(projectId);
+    return handle.getCombosByPartId(partId);
+  }
+
+  /**
+   * Gets all combo IDs that reference a given version.
+   */
+  async getCombosByVersionId(projectId: ProjectId, versionId: PartVersionId): Promise<readonly ComboId[]> {
+    const handle = await this.load(projectId);
+    return handle.getCombosByVersionId(versionId);
   }
 
   private createHandle(projectId: ProjectId, snapshot?: ProjectSnapshot): ProjectHandle {

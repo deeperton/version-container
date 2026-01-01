@@ -1,6 +1,6 @@
 {
   "name": "version-container",
-  "version": "1.0.0",
+  "version": "0.0.3",
   "description": "A minimal TypeScript library built with Vite",
   "type": "module",
   "main": "./dist/version-container.cjs.js",

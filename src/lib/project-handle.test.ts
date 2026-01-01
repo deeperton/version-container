@@ -1494,4 +1494,431 @@ describe('ProjectHandle', () => {
       expect(updated.updatedAt).toBe('2024-02-01T13:00:00.000Z' as ISO8601Timestamp);
     });
   });
+
+  describe('Query methods', () => {
+    const adapterId1 = 'adapter-1' as AdapterId;
+    const adapterId2 = 'adapter-2' as AdapterId;
+
+    const queryTestSetup = async (): Promise<{
+      handle: ProjectHandle;
+      storage: InMemoryStorageProvider;
+      clock: TestClock;
+      partIds: { engine: PartId; wheels: PartId; brakes: PartId };
+      versionIds: { v1: PartVersionId; v2: PartVersionId; v3: PartVersionId };
+      comboIds: { baseline: ComboId; staging: ComboId };
+    }> => {
+      const clock = new TestClock(initialTime);
+      const storage = new InMemoryStorageProvider();
+      const events = new ProjectEventDispatcher();
+
+      const snapshot = buildProjectSnapshot(
+        {
+          name: 'Query Test',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: adapterId1,
+              tags: ['critical', 'hardware'],
+              metadata: { team: 'avionics' },
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  label: '1.0.0',
+                  locator: { uri: 'memory://engine@1.0.0' },
+                  metadata: { stable: true },
+                },
+                {
+                  id: 'v2' as PartVersionId,
+                  label: '1.1.0',
+                  locator: { uri: 'memory://engine@1.1.0' },
+                  metadata: { stable: false },
+                },
+              ],
+            },
+            {
+              id: 'wheels' as PartId,
+              name: 'Wheels',
+              adapterId: adapterId1,
+              tags: ['hardware'],
+              metadata: { team: 'mechanical' },
+              versions: [
+                {
+                  id: 'v3' as PartVersionId,
+                  label: '2.0.0',
+                  locator: { uri: 'memory://wheels@2.0.0' },
+                },
+              ],
+            },
+            {
+              id: 'brakes' as PartId,
+              name: 'Brakes',
+              adapterId: adapterId2,
+              tags: ['critical', 'hardware'],
+              metadata: { team: 'mechanical' },
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              metadata: { environment: 'prod' },
+              bindings: [
+                { partId: 'engine' as PartId, versionId: 'v1' as PartVersionId },
+                { partId: 'wheels' as PartId, versionId: 'v3' as PartVersionId },
+              ],
+            },
+            {
+              id: 'staging' as ComboId,
+              name: 'Staging',
+              metadata: { environment: 'staging' },
+              bindings: [
+                { partId: 'engine' as PartId, versionId: 'v2' as PartVersionId },
+                { partId: 'wheels' as PartId, versionId: 'v3' as PartVersionId },
+              ],
+            },
+          ],
+        },
+        { clock }
+      );
+
+      await storage.saveSnapshot(snapshot);
+
+      const handle = new ProjectHandle({
+        projectId: snapshot.project.id,
+        storage,
+        adapters: [],
+        clock,
+        events,
+        initialSnapshot: snapshot,
+      });
+
+      return {
+        handle,
+        storage,
+        clock,
+        partIds: {
+          engine: 'engine' as PartId,
+          wheels: 'wheels' as PartId,
+          brakes: 'brakes' as PartId,
+        },
+        versionIds: {
+          v1: 'v1' as PartVersionId,
+          v2: 'v2' as PartVersionId,
+          v3: 'v3' as PartVersionId,
+        },
+        comboIds: {
+          baseline: 'baseline' as ComboId,
+          staging: 'staging' as ComboId,
+        },
+      };
+    };
+
+    describe('findParts', () => {
+      it('returns all part IDs when no filter provided', async () => {
+        const { handle } = await queryTestSetup();
+        const ids = handle.findParts();
+        expect(ids).toHaveLength(3);
+      });
+
+      it('filters by adapterId', async () => {
+        const { handle, partIds } = await queryTestSetup();
+        const ids = handle.findParts({ adapterId: 'adapter-1' as AdapterId });
+        expect(ids).toHaveLength(2);
+        expect(ids).toContain(partIds.engine);
+        expect(ids).toContain(partIds.wheels);
+      });
+
+      it('filters by tags (any match)', async () => {
+        const { handle, partIds } = await queryTestSetup();
+        const ids = handle.findParts({ tags: ['critical'] });
+        expect(ids).toHaveLength(2);
+        expect(ids).toContain(partIds.engine);
+        expect(ids).toContain(partIds.brakes);
+      });
+
+      it('filters by metadata (subset match)', async () => {
+        const { handle, partIds } = await queryTestSetup();
+        const ids = handle.findParts({ metadata: { team: 'mechanical' } });
+        expect(ids).toHaveLength(2);
+        expect(ids).toContain(partIds.wheels);
+        expect(ids).toContain(partIds.brakes);
+      });
+
+      it('combines multiple filters', async () => {
+        const { handle, partIds } = await queryTestSetup();
+        const ids = handle.findParts({
+          adapterId: 'adapter-1' as AdapterId,
+          tags: ['critical'],
+        });
+        expect(ids).toHaveLength(1);
+        expect(ids).toContain(partIds.engine);
+      });
+
+      it('returns empty array when no matches', async () => {
+        const { handle } = await queryTestSetup();
+        const ids = handle.findParts({ adapterId: 'non-existent' as AdapterId });
+        expect(ids).toHaveLength(0);
+      });
+
+      it('returns empty array when snapshot not loaded', async () => {
+        const storage = new InMemoryStorageProvider();
+        const clock = new TestClock(initialTime);
+        const handle = new ProjectHandle({
+          projectId: 'test' as ProjectId,
+          storage,
+          adapters: [],
+          clock,
+          events: new ProjectEventDispatcher(),
+        });
+        expect(handle.findParts()).toHaveLength(0);
+      });
+    });
+
+    describe('findVersions', () => {
+      it('returns all version IDs when no filter provided', async () => {
+        const { handle } = await queryTestSetup();
+        const ids = handle.findVersions();
+        expect(ids).toHaveLength(3);
+      });
+
+      it('filters by partId', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        const ids = handle.findVersions({ partId: 'engine' as PartId });
+        expect(ids).toHaveLength(2);
+        expect(ids).toContain(versionIds.v1);
+        expect(ids).toContain(versionIds.v2);
+      });
+
+      it('filters by label', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        const ids = handle.findVersions({ label: '1.0.0' });
+        expect(ids).toHaveLength(1);
+        expect(ids).toContain(versionIds.v1);
+      });
+
+      it('filters by metadata', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        const ids = handle.findVersions({ metadata: { stable: true } });
+        expect(ids).toHaveLength(1);
+        expect(ids).toContain(versionIds.v1);
+      });
+
+      it('combines multiple filters', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        const ids = handle.findVersions({
+          partId: 'engine' as PartId,
+          metadata: { stable: false },
+        });
+        expect(ids).toHaveLength(1);
+        expect(ids).toContain(versionIds.v2);
+      });
+    });
+
+    describe('findCombos', () => {
+      it('returns all combo IDs when no filter provided', async () => {
+        const { handle } = await queryTestSetup();
+        const ids = handle.findCombos();
+        expect(ids).toHaveLength(2);
+      });
+
+      it('filters by partId', async () => {
+        const { handle, comboIds } = await queryTestSetup();
+        const ids = handle.findCombos({ partId: 'engine' as PartId });
+        expect(ids).toHaveLength(2);
+        expect(ids).toContain(comboIds.baseline);
+        expect(ids).toContain(comboIds.staging);
+      });
+
+      it('filters by versionId', async () => {
+        const { handle, comboIds } = await queryTestSetup();
+        const ids = handle.findCombos({ versionId: 'v1' as PartVersionId });
+        expect(ids).toHaveLength(1);
+        expect(ids).toContain(comboIds.baseline);
+      });
+
+      it('filters by metadata', async () => {
+        const { handle, comboIds } = await queryTestSetup();
+        const ids = handle.findCombos({ metadata: { environment: 'prod' } });
+        expect(ids).toHaveLength(1);
+        expect(ids).toContain(comboIds.baseline);
+      });
+    });
+
+    describe('getPartById', () => {
+      it('returns full PartDefinition when found', async () => {
+        const { handle, partIds } = await queryTestSetup();
+        const part = handle.getPartById(partIds.engine);
+        expect(part).toBeDefined();
+        expect(part?.id).toBe(partIds.engine);
+        expect(part?.name).toBe('Engine');
+        expect(part?.tags).toEqual(['critical', 'hardware']);
+      });
+
+      it('returns undefined when not found', async () => {
+        const { handle } = await queryTestSetup();
+        const part = handle.getPartById('non-existent' as PartId);
+        expect(part).toBeUndefined();
+      });
+
+      it('returns cloned object (mutation safe)', async () => {
+        const { handle, partIds } = await queryTestSetup();
+        const part1 = handle.getPartById(partIds.engine);
+        const part2 = handle.getPartById(partIds.engine);
+        expect(part1).not.toBe(part2);
+        expect(part1).toEqual(part2);
+      });
+    });
+
+    describe('getVersionById', () => {
+      it('returns full PartVersion when found', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        const version = handle.getVersionById(versionIds.v1);
+        expect(version).toBeDefined();
+        expect(version?.id).toBe(versionIds.v1);
+        expect(version?.label).toBe('1.0.0');
+        expect(version?.partId).toBe('engine' as PartId);
+      });
+
+      it('returns undefined when not found', async () => {
+        const { handle } = await queryTestSetup();
+        const version = handle.getVersionById('non-existent' as PartVersionId);
+        expect(version).toBeUndefined();
+      });
+
+      it('returns cloned object (mutation safe)', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        const v1 = handle.getVersionById(versionIds.v1);
+        const v2 = handle.getVersionById(versionIds.v1);
+        expect(v1).not.toBe(v2);
+        expect(v1).toEqual(v2);
+      });
+    });
+
+    describe('getComboById', () => {
+      it('returns full VersionCombo when found', async () => {
+        const { handle, comboIds } = await queryTestSetup();
+        const combo = handle.getComboById(comboIds.baseline);
+        expect(combo).toBeDefined();
+        expect(combo?.id).toBe(comboIds.baseline);
+        expect(combo?.name).toBe('Baseline');
+        expect(combo?.bindings).toHaveLength(2);
+      });
+
+      it('returns undefined when not found', async () => {
+        const { handle } = await queryTestSetup();
+        const combo = handle.getComboById('non-existent' as ComboId);
+        expect(combo).toBeUndefined();
+      });
+
+      it('returns cloned object (mutation safe)', async () => {
+        const { handle, comboIds } = await queryTestSetup();
+        const c1 = handle.getComboById(comboIds.baseline);
+        const c2 = handle.getComboById(comboIds.baseline);
+        expect(c1).not.toBe(c2);
+        expect(c1).toEqual(c2);
+      });
+    });
+
+    describe('getPartSummary', () => {
+      it('returns summary when found', async () => {
+        const { handle, partIds } = await queryTestSetup();
+        const summary = handle.getPartSummary(partIds.engine);
+        expect(summary).toEqual({
+          id: partIds.engine,
+          name: 'Engine',
+          description: undefined,
+        });
+      });
+
+      it('returns undefined when not found', async () => {
+        const { handle } = await queryTestSetup();
+        const summary = handle.getPartSummary('non-existent' as PartId);
+        expect(summary).toBeUndefined();
+      });
+    });
+
+    describe('getVersionSummary', () => {
+      it('returns summary when found', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        const summary = handle.getVersionSummary(versionIds.v1);
+        expect(summary).toEqual({
+          id: versionIds.v1,
+          label: '1.0.0',
+        });
+      });
+
+      it('returns undefined when not found', async () => {
+        const { handle } = await queryTestSetup();
+        const summary = handle.getVersionSummary('non-existent' as PartVersionId);
+        expect(summary).toBeUndefined();
+      });
+    });
+
+    describe('getComboSummary', () => {
+      it('returns summary when found', async () => {
+        const { handle, comboIds } = await queryTestSetup();
+        const summary = handle.getComboSummary(comboIds.baseline);
+        expect(summary).toEqual({
+          id: comboIds.baseline,
+          name: 'Baseline',
+          description: undefined,
+        });
+      });
+
+      it('returns undefined when not found', async () => {
+        const { handle } = await queryTestSetup();
+        const summary = handle.getComboSummary('non-existent' as ComboId);
+        expect(summary).toBeUndefined();
+      });
+    });
+
+    describe('getVersionsByPartId', () => {
+      it('returns all version IDs for a part', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        const ids = handle.getVersionsByPartId('engine' as PartId);
+        expect(ids).toHaveLength(2);
+        expect(ids).toContain(versionIds.v1);
+        expect(ids).toContain(versionIds.v2);
+      });
+
+      it('returns empty array for non-existent part', async () => {
+        const { handle } = await queryTestSetup();
+        const ids = handle.getVersionsByPartId('non-existent' as PartId);
+        expect(ids).toHaveLength(0);
+      });
+    });
+
+    describe('getCombosByPartId', () => {
+      it('returns all combo IDs referencing a part', async () => {
+        const { handle, comboIds } = await queryTestSetup();
+        const ids = handle.getCombosByPartId('engine' as PartId);
+        expect(ids).toHaveLength(2);
+        expect(ids).toContain(comboIds.baseline);
+        expect(ids).toContain(comboIds.staging);
+      });
+
+      it('returns empty array when no combos reference the part', async () => {
+        const { handle } = await queryTestSetup();
+        const ids = handle.getCombosByPartId('brakes' as PartId);
+        expect(ids).toHaveLength(0);
+      });
+    });
+
+    describe('getCombosByVersionId', () => {
+      it('returns all combo IDs referencing a version', async () => {
+        const { handle, comboIds } = await queryTestSetup();
+        const ids = handle.getCombosByVersionId('v3' as PartVersionId);
+        expect(ids).toHaveLength(2);
+        expect(ids).toContain(comboIds.baseline);
+        expect(ids).toContain(comboIds.staging);
+      });
+
+      it('returns empty array when no combos reference the version', async () => {
+        const { handle } = await queryTestSetup();
+        const ids = handle.getCombosByVersionId('non-existent' as PartVersionId);
+        expect(ids).toHaveLength(0);
+      });
+    });
+  });
 });

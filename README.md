@@ -221,6 +221,66 @@ unsubscribe();
 
 Available events today include `project:created`, `project:loaded`, `project:updated`, `project:closed`, `part:added`, `part:updated`, `part:removed`, `version:added`, `version:updated`, `version:removed`, `combo:added`, `combo:updated`, and `combo:removed`. Future middleware hooks will piggy-back on the same dispatcher.
 
+### 9. Query and filter parts, versions, and combos
+
+The library provides synchronous query methods on `ProjectHandle` (and async delegations on `ProjectRegistry`) for finding entities by various criteria. Queries operate on the in-memory snapshot for fast lookups.
+
+```ts
+// Find parts by adapter, tags, or metadata
+const gitParts = await registry.findParts(handle.projectId, {
+  adapterId: createAdapterId('git'),
+});
+
+const taggedParts = await registry.findParts(handle.projectId, {
+  tags: ['critical', 'production'],
+});
+
+// Find versions by part, label, or metadata
+const engineVersions = await registry.findVersions(handle.projectId, {
+  partId: enginePartId,
+});
+
+// Find combos that reference a specific part or version
+const combosUsingEngine = await registry.findCombos(handle.projectId, {
+  partId: enginePartId,
+});
+
+const combosUsingV1 = await registry.findCombos(handle.projectId, {
+  versionId: engineV1Id,
+});
+```
+
+The `find*` methods return arrays of entity IDs. Use the `get*ById` methods to retrieve full entities:
+
+```ts
+// Get full entity by ID
+const part = await registry.getPartById(handle.projectId, enginePartId);
+console.log(part?.name); // "Engine Controller"
+
+// Get lightweight summary (id + name/description only)
+const summary = await registry.getPartSummary(handle.projectId, enginePartId);
+console.log(summary?.name); // "Engine Controller"
+```
+
+Convenience methods are available for common queries:
+
+```ts
+// Get all versions for a part
+const versionIds = await registry.getVersionsByPartId(handle.projectId, enginePartId);
+
+// Get all combos that reference a part
+const comboIds = await registry.getCombosByPartId(handle.projectId, enginePartId);
+
+// Get all combos that reference a specific version
+const comboIds = await registry.getCombosByVersionId(handle.projectId, engineV1Id);
+```
+
+Filter behavior:
+- **adapterId**: Exact match
+- **tags**: Any match (returns entities that have at least one of the specified tags)
+- **metadata**: Subset match (all filter key/values must exist in the target)
+- **partId/versionId**: Exact match on the respective field
+
 ### Notes on middleware
 
 Middleware hooks are not yet implemented, but TODO markers in the code indicate where lifecycle events (`project:create`, `project:load`, `project:save`, etc.) will be exposed. These placeholders make it straightforward to add logging, validation, or policy enforcement layers in future iterations.
@@ -229,7 +289,7 @@ Middleware hooks are not yet implemented, but TODO markers in the code indicate 
 
 Key exports available today:
 
-- Domain models – `ProjectInit`, `PartDefinition`, `VersionCombo`, `VersionComboInit`, and related branded ID types (see `src/models`).
+- Domain models – `ProjectInit`, `PartDefinition`, `VersionCombo`, `VersionComboInit`, filter types (`PartFilter`, `VersionFilter`, `ComboFilter`), summary types (`PartSummary`, `VersionSummary`, `ComboSummary`), and related branded ID types (see `src/models`).
 - Utilities – `createPartId`, `createPartVersionId`, `createComboId`, `createAdapterId`, `cloneValue`, and the `AsyncMutex`.
 - Runtime services – `ProjectRegistry`, `ProjectHandle`, `ProjectEventDispatcher`, `buildProjectSnapshot`, plus a `SystemClock` you can replace with a deterministic clock in tests.
 - Storage – `InMemoryStorageProvider` for persistence during development or unit testing.
@@ -238,18 +298,36 @@ Key exports available today:
 
 | Method | Description |
 |--------|-------------|
+| **Project Lifecycle** | |
 | `open(init)` | Create a new project |
 | `load(projectId)` | Load an existing project |
 | `close(projectId)` | Close a project |
+| **Part Management** | |
 | `addPart(projectId, init)` | Add a part to a project |
 | `updatePart(projectId, id, mutator)` | Update a part |
 | `deletePart(projectId, id)` | Delete a part (cascades to versions) |
+| **Version Management** | |
 | `addPartVersion(projectId, partId, init)` | Add a version to a part |
 | `updatePartVersion(projectId, id, mutator)` | Update a version |
 | `deletePartVersion(projectId, id)` | Delete a version |
+| **Combo Management** | |
 | `addCombo(projectId, init)` | Add a combo |
 | `updateCombo(projectId, id, mutator)` | Update a combo |
 | `deleteCombo(projectId, id)` | Delete a combo |
+| **Query Methods** | |
+| `findParts(projectId, filter?)` | Find parts by adapter, tags, or metadata |
+| `findVersions(projectId, filter?)` | Find versions by part, label, or metadata |
+| `findCombos(projectId, filter?)` | Find combos by part/version reference or metadata |
+| `getPartById(projectId, id)` | Get full part entity by ID |
+| `getVersionById(projectId, id)` | Get full version entity by ID |
+| `getComboById(projectId, id)` | Get full combo entity by ID |
+| `getPartSummary(projectId, id)` | Get lightweight part summary |
+| `getVersionSummary(projectId, id)` | Get lightweight version summary |
+| `getComboSummary(projectId, id)` | Get lightweight combo summary |
+| `getVersionsByPartId(projectId, partId)` | Get all version IDs for a part |
+| `getCombosByPartId(projectId, partId)` | Get all combo IDs referencing a part |
+| `getCombosByVersionId(projectId, versionId)` | Get all combo IDs referencing a version |
+| **Utility** | |
 | `listOpenProjects()` | List open projects |
 | `getEventDispatcher()` | Get the event dispatcher |
 
@@ -289,3 +367,9 @@ Follow the architecture and testing principles documented in [CLAUDE.md](./CLAUD
 ## License
 
 ISC
+
+# Plans
+
+## Async project loading
+
+In the next major release there is an idea to suppoort partial loading for projects.
