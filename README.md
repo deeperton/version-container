@@ -89,7 +89,7 @@ Behind the scenes `ProjectRegistry` converts your initialization data into a val
 
 ### 3. Mutate the project over time
 
-Atomic helpers on the registry/handle let you add or refine parts and versions without re-sending the full snapshot. The handle still exposes `update` for large structural edits (combos, metadata, etc.).
+Atomic helpers on the registry/handle let you add or refine parts and versions without re-sending the full snapshot.
 
 ```ts
 const newVersionId = createPartVersionId('engine-v1.1.0');
@@ -104,19 +104,80 @@ await registry.updatePartVersion(handle.projectId, newVersionId, (version) => ({
   ...version,
   metadata: { releaseNotes: 'Improved fuel mixture' },
 }));
+```
 
+### 4. Manage combos after project creation
+
+Combos can be created during initialization (as shown above), but you can also add and update combos after the project is created:
+
+```ts
+// Add a new combo
+const stagingCombo = await registry.addCombo(handle.projectId, {
+  name: 'Staging',
+  description: 'Pre-production configuration',
+  bindings: [
+    {
+      partId: enginePartId,
+      versionId: newVersionId,
+    },
+  ],
+});
+
+// Update an existing combo's bindings
+await registry.updateCombo(handle.projectId, stagingCombo.id, (combo) => ({
+  ...combo,
+  name: 'Staging v2',
+  description: 'Updated staging configuration',
+  bindings: [
+    {
+      partId: enginePartId,
+      versionId: newVersionId,
+    },
+  ],
+}));
+
+// Delete a combo that's no longer needed
+await registry.deleteCombo(handle.projectId, baselineComboId);
+```
+
+The `addCombo` and `updateCombo` methods validate that all referenced parts and versions exist, and that each version belongs to its corresponding part. The `updateCombo` method preserves the original `createdAt` timestamp while updating `updatedAt`.
+
+### 5. Delete obsolete parts and versions
+
+When parts or versions are no longer needed, you can delete them. The library enforces referential integrity—parts and versions referenced by any combo cannot be deleted:
+
+```ts
+// This will fail if the version is referenced by a combo
+await registry.deletePartVersion(handle.projectId, engineV1Id);
+
+// First, update or remove combos that reference it
+await registry.updateCombo(handle.projectId, baselineComboId, (combo) => ({
+  ...combo,
+  bindings: combo.bindings.map((b) =>
+    b.versionId === engineV1Id
+      ? { ...b, versionId: newVersionId }
+      : b
+  ),
+}));
+
+// Now the deletion succeeds
+await registry.deletePartVersion(handle.projectId, engineV1Id);
+
+// Delete a part (cascades to delete all its versions)
+await registry.deletePart(handle.projectId, enginePartId);
+```
+
+### 6. Use the low-level update API
+
+For advanced scenarios, the handle still exposes `update` for direct snapshot manipulation:
+
+```ts
 await handle.update((snapshot) => ({
   ...snapshot,
-  combos: snapshot.combos.map((combo) =>
-    combo.id === baselineComboId
-      ? {
-          ...combo,
-          bindings: combo.bindings.map((binding) =>
-            binding.partId === enginePartId ? { ...binding, versionId: newVersionId } : binding
-          ),
-        }
-      : combo
-  ),
+  project: {
+    ...snapshot.project,
+    metadata: { ...snapshot.project.metadata, archived: true },
+  },
 }));
 
 await handle.save(); // persists only if the snapshot changed
@@ -124,7 +185,7 @@ await handle.save(); // persists only if the snapshot changed
 
 All updates automatically receive a fresh `updatedAt` timestamp. Because mutations occur inside a mutex, concurrent callers cannot corrupt the in-memory cache.
 
-### 4. Work with multiple projects
+### 7. Work with multiple projects
 
 `ProjectRegistry.load` rehydrates an existing project (or reuses the currently open handle). You can list or close open projects at any time:
 
@@ -139,7 +200,7 @@ await registry.close(handle.projectId); // closes and saves by default
 
 When `close` executes it optionally flushes dirty snapshots and releases cached resources so the project can be loaded elsewhere.
 
-### 5. Subscribe to lifecycle events
+### 8. Subscribe to lifecycle events
 
 Every mutating operation emits typed events through a central dispatcher. Middleware and tooling can subscribe once and react to structural changes.
 
@@ -158,7 +219,7 @@ await registry.updatePartVersion(handle.projectId, newVersionId, (current) => ({
 unsubscribe();
 ```
 
-Available events today include `project:created`, `project:loaded`, `project:updated`, `project:closed`, `part:added`, `part:updated`, `version:added`, and `version:updated`. Future middleware hooks will piggy-back on the same dispatcher.
+Available events today include `project:created`, `project:loaded`, `project:updated`, `project:closed`, `part:added`, `part:updated`, `part:removed`, `version:added`, `version:updated`, `version:removed`, `combo:added`, `combo:updated`, and `combo:removed`. Future middleware hooks will piggy-back on the same dispatcher.
 
 ### Notes on middleware
 
@@ -168,10 +229,29 @@ Middleware hooks are not yet implemented, but TODO markers in the code indicate 
 
 Key exports available today:
 
-- Domain models – `ProjectInit`, `PartDefinition`, `VersionCombo`, and related branded ID types (see `src/models`).
+- Domain models – `ProjectInit`, `PartDefinition`, `VersionCombo`, `VersionComboInit`, and related branded ID types (see `src/models`).
 - Utilities – `createPartId`, `createPartVersionId`, `createComboId`, `createAdapterId`, `cloneValue`, and the `AsyncMutex`.
 - Runtime services – `ProjectRegistry`, `ProjectHandle`, `ProjectEventDispatcher`, `buildProjectSnapshot`, plus a `SystemClock` you can replace with a deterministic clock in tests.
 - Storage – `InMemoryStorageProvider` for persistence during development or unit testing.
+
+### Registry Methods
+
+| Method | Description |
+|--------|-------------|
+| `open(init)` | Create a new project |
+| `load(projectId)` | Load an existing project |
+| `close(projectId)` | Close a project |
+| `addPart(projectId, init)` | Add a part to a project |
+| `updatePart(projectId, id, mutator)` | Update a part |
+| `deletePart(projectId, id)` | Delete a part (cascades to versions) |
+| `addPartVersion(projectId, partId, init)` | Add a version to a part |
+| `updatePartVersion(projectId, id, mutator)` | Update a version |
+| `deletePartVersion(projectId, id)` | Delete a version |
+| `addCombo(projectId, init)` | Add a combo |
+| `updateCombo(projectId, id, mutator)` | Update a combo |
+| `deleteCombo(projectId, id)` | Delete a combo |
+| `listOpenProjects()` | List open projects |
+| `getEventDispatcher()` | Get the event dispatcher |
 
 Refer to the source modules for comprehensive type definitions and JSDoc comments.
 
