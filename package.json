@@ -48,12 +48,12 @@
   "license": "ISC",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aartiukh/version-container.git"
+    "url": "https://github.com/deeperton/version-container.git"
   },
   "bugs": {
-    "url": "https://github.com/aartiukh/version-container/issues"
+    "url": "https://github.com/deeperton/version-container/issues"
   },
-  "homepage": "https://github.com/aartiukh/version-container#readme",
+  "homepage": "https://github.com/deeperton/version-container#readme",
   "engines": {
     "node": ">=18.0.0"
   },
