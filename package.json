@@ -1,7 +1,7 @@
 {
   "name": "version-container",
   "version": "0.0.3",
-  "description": "A minimal TypeScript library built with Vite",
+  "description": "Type-safe building blocks for managing projects composed of parts, versions, and version combos",
   "type": "module",
   "main": "./dist/version-container.cjs.js",
   "module": "./dist/version-container.es.js",
@@ -14,12 +14,15 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "dev": "vite",
-    "build": "tsc",
-    "vibuild": "tsc && vite build --config vite.config.ts",
+    "build": "tsc && vite build --config vite.config.ts",
+    "prebuild": "npm run clean",
+    "clean": "rimraf dist",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
@@ -27,15 +30,33 @@
     "lint:fix": "eslint . --ext .ts,.js --fix",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
+    "version",
+    "version-control",
+    "project-management",
     "typescript",
-    "library",
-    "vite"
+    "parts",
+    "components",
+    "snapshots",
+    "registry",
+    "type-safe"
   ],
   "author": "",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aartiukh/version-container.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aartiukh/version-container/issues"
+  },
+  "homepage": "https://github.com/aartiukh/version-container#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "devDependencies": {
     "@eslint/js": "^9.37.0",
     "@types/node": "^24.7.2",
@@ -46,6 +67,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
     "prettier": "^3.6.2",
+    "rimraf": "^6.0.1",
     "typescript": "^5.9.3",
     "vite": "^7.1.9",
     "vitest": "^3.2.4"
