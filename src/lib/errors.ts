@@ -1,0 +1,286 @@
+import type {
+  ComboId,
+  PartId,
+  PartVersionId,
+  ProjectId,
+} from '../models/base.js';
+
+/**
+ * Base error class for all version-container errors.
+ * Provides a common type for catching any library-specific error.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await registry.deletePart(projectId, partId);
+ * } catch (error) {
+ *   if (error instanceof VersionContainerError) {
+ *     console.log(`Error code: ${error.code}, entity: ${error.entityId}`);
+ *   }
+ * }
+ * ```
+ */
+export abstract class VersionContainerError extends Error {
+  /**
+   * Unique error code for programmatic error handling.
+   */
+  abstract readonly code: VersionContainerErrorCode;
+
+  /**
+   * The ID of the entity involved in the error, if applicable.
+   */
+  readonly entityId?: string;
+
+  constructor(message: string, entityId?: string) {
+    super(message);
+    this.name = this.constructor.name;
+    this.entityId = entityId;
+  }
+}
+
+/**
+ * Type union of all possible error codes.
+ * Useful for type-safe switch statements on error codes.
+ */
+export type VersionContainerErrorCode =
+  | 'PART_NOT_FOUND'
+  | 'VERSION_NOT_FOUND'
+  | 'COMBO_NOT_FOUND'
+  | 'PROJECT_NOT_FOUND'
+  | 'PART_ALREADY_EXISTS'
+  | 'VERSION_ALREADY_EXISTS'
+  | 'COMBO_ALREADY_EXISTS'
+  | 'PROJECT_ALREADY_OPEN'
+  | 'UNKNOWN_VERSION_REFERENCE'
+  | 'UNKNOWN_PART_REFERENCE'
+  | 'IDENTIFIER_CHANGE'
+  | 'VERSION_REASSIGNMENT'
+  | 'PROJECT_CLOSED'
+  | 'PROJECT_NOT_IN_STORAGE'
+  | 'DUPLICATE_IDENTIFIER';
+
+// ============================================================================
+// NotFoundError subclasses
+// ============================================================================
+
+/**
+ * Thrown when a part operation is attempted on a non-existent part.
+ */
+export class PartNotFoundError extends VersionContainerError {
+  readonly code = 'PART_NOT_FOUND' as const;
+  readonly partId: PartId;
+
+  constructor(partId: PartId) {
+    super(`Part ${partId as string} does not exist.`, partId as string);
+    this.partId = partId;
+  }
+}
+
+/**
+ * Thrown when a version operation is attempted on a non-existent version.
+ */
+export class VersionNotFoundError extends VersionContainerError {
+  readonly code = 'VERSION_NOT_FOUND' as const;
+  readonly versionId: PartVersionId;
+
+  constructor(versionId: PartVersionId) {
+    super(`Version ${versionId as string} does not exist.`, versionId as string);
+    this.versionId = versionId;
+  }
+}
+
+/**
+ * Thrown when a combo operation is attempted on a non-existent combo.
+ */
+export class ComboNotFoundError extends VersionContainerError {
+  readonly code = 'COMBO_NOT_FOUND' as const;
+  readonly comboId: ComboId;
+
+  constructor(comboId: ComboId) {
+    super(`Combo ${comboId as string} does not exist.`, comboId as string);
+    this.comboId = comboId;
+  }
+}
+
+/**
+ * Thrown when attempting to load a project that doesn't exist in storage.
+ */
+export class ProjectNotFoundError extends VersionContainerError {
+  readonly code = 'PROJECT_NOT_FOUND' as const;
+  readonly projectId: ProjectId;
+
+  constructor(projectId: ProjectId) {
+    super(`Project ${projectId as string} could not be found.`, projectId as string);
+    this.projectId = projectId;
+  }
+}
+
+// ============================================================================
+// AlreadyExistsError subclasses
+// ============================================================================
+
+/**
+ * Thrown when attempting to add a part that already exists.
+ */
+export class PartAlreadyExistsError extends VersionContainerError {
+  readonly code = 'PART_ALREADY_EXISTS' as const;
+  readonly partId: PartId;
+
+  constructor(partId: PartId) {
+    super(`Part ${partId as string} already exists in project.`, partId as string);
+    this.partId = partId;
+  }
+}
+
+/**
+ * Thrown when attempting to add a version that already exists.
+ */
+export class VersionAlreadyExistsError extends VersionContainerError {
+  readonly code = 'VERSION_ALREADY_EXISTS' as const;
+  readonly versionId: PartVersionId;
+
+  constructor(versionId: PartVersionId) {
+    super(`Version ${versionId as string} already exists.`, versionId as string);
+    this.versionId = versionId;
+  }
+}
+
+/**
+ * Thrown when attempting to add a combo that already exists.
+ */
+export class ComboAlreadyExistsError extends VersionContainerError {
+  readonly code = 'COMBO_ALREADY_EXISTS' as const;
+  readonly comboId: ComboId;
+
+  constructor(comboId: ComboId) {
+    super(`Combo ${comboId as string} already exists in project.`, comboId as string);
+    this.comboId = comboId;
+  }
+}
+
+/**
+ * Thrown when attempting to open a project that is already open.
+ */
+export class ProjectAlreadyOpenError extends VersionContainerError {
+  readonly code = 'PROJECT_ALREADY_OPEN' as const;
+  readonly projectId: ProjectId;
+
+  constructor(projectId: ProjectId) {
+    super(`Project ${projectId as string} is already open.`, projectId as string);
+    this.projectId = projectId;
+  }
+}
+
+// ============================================================================
+// InvalidReferenceError subclasses
+// ============================================================================
+
+/**
+ * Thrown when a combo references a version that doesn't exist.
+ */
+export class UnknownVersionReferenceError extends VersionContainerError {
+  readonly code = 'UNKNOWN_VERSION_REFERENCE' as const;
+  readonly versionId: PartVersionId;
+
+  constructor(versionId: PartVersionId) {
+    super(`Unknown version referenced: ${versionId as string}`, versionId as string);
+    this.versionId = versionId;
+  }
+}
+
+/**
+ * Thrown when a combo references a part that doesn't exist.
+ */
+export class UnknownPartReferenceError extends VersionContainerError {
+  readonly code = 'UNKNOWN_PART_REFERENCE' as const;
+  readonly partId: PartId;
+
+  constructor(partId: PartId) {
+    super(`Unknown part referenced: ${partId as string}`, partId as string);
+    this.partId = partId;
+  }
+}
+
+// ============================================================================
+// ConstraintViolationError subclasses
+// ============================================================================
+
+/**
+ * Thrown when attempting to change an entity's identifier during an update.
+ */
+export class IdentifierChangeError extends VersionContainerError {
+  readonly code = 'IDENTIFIER_CHANGE' as const;
+
+  constructor(entityType: 'Part' | 'Version' | 'Combo') {
+    super(`${entityType} identifier cannot be changed during update.`);
+  }
+}
+
+/**
+ * Thrown when attempting to reassign a version to a different part.
+ */
+export class VersionReassignmentError extends VersionContainerError {
+  readonly code = 'VERSION_REASSIGNMENT' as const;
+  readonly versionId: PartVersionId;
+  readonly currentPartId: PartId;
+  readonly newPartId: PartId;
+
+  constructor(versionId: PartVersionId, currentPartId: PartId, newPartId: PartId) {
+    super(
+      `Version cannot be reassigned from part ${currentPartId as string} to ${newPartId as string}.`,
+      versionId as string
+    );
+    this.versionId = versionId;
+    this.currentPartId = currentPartId;
+    this.newPartId = newPartId;
+  }
+}
+
+// ============================================================================
+// InvalidStateError subclasses
+// ============================================================================
+
+/**
+ * Thrown when attempting to operate on a project that has been closed.
+ */
+export class ProjectClosedError extends VersionContainerError {
+  readonly code = 'PROJECT_CLOSED' as const;
+  readonly projectId: ProjectId;
+
+  constructor(projectId: ProjectId) {
+    super(`Project ${projectId as string} has been closed.`, projectId as string);
+    this.projectId = projectId;
+  }
+}
+
+/**
+ * Thrown when a project is expected to exist in storage but doesn't.
+ */
+export class ProjectNotInStorageError extends VersionContainerError {
+  readonly code = 'PROJECT_NOT_IN_STORAGE' as const;
+  readonly projectId: ProjectId;
+
+  constructor(projectId: ProjectId) {
+    super(`Project ${projectId as string} does not exist in storage.`, projectId as string);
+    this.projectId = projectId;
+  }
+}
+
+// ============================================================================
+// Other errors
+// ============================================================================
+
+/**
+ * Thrown when a duplicate identifier is detected during snapshot building.
+ */
+export class DuplicateIdentifierError extends VersionContainerError {
+  readonly code = 'DUPLICATE_IDENTIFIER' as const;
+  readonly entityType: 'part' | 'version' | 'combo';
+  readonly identifier: string;
+
+  constructor(entityType: 'part' | 'version' | 'combo', identifier: string) {
+    super(`Duplicate ${entityType} identifier detected: ${identifier}`, identifier);
+    this.entityType = entityType;
+    this.identifier = identifier;
+  }
+}

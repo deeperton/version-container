@@ -281,6 +281,55 @@ Filter behavior:
 - **metadata**: Subset match (all filter key/values must exist in the target)
 - **partId/versionId**: Exact match on the respective field
 
+### 10. Error handling
+
+All library errors extend from `VersionContainerError`, enabling type-safe error handling:
+
+```ts
+import {
+  PartNotFoundError,
+  VersionNotFoundError,
+  VersionContainerError,
+  type VersionContainerErrorCode,
+} from 'version-container';
+
+try {
+  await registry.deletePart(projectId, partId);
+} catch (error) {
+  if (error instanceof PartNotFoundError) {
+    // Handle missing part - error.partId is available
+    console.error(`Part ${error.partId} not found`);
+  } else if (error instanceof VersionContainerError) {
+    // Catch-all for any version-container error
+    console.error(`Error code: ${error.code}, entity: ${error.entityId}`);
+  } else {
+    throw error; // Re-throw unexpected errors
+  }
+}
+```
+
+#### Available error types
+
+| Error | Code | When Thrown |
+|-------|------|-------------|
+| `PartNotFoundError` | `PART_NOT_FOUND` | Part doesn't exist |
+| `VersionNotFoundError` | `VERSION_NOT_FOUND` | Version doesn't exist |
+| `ComboNotFoundError` | `COMBO_NOT_FOUND` | Combo doesn't exist |
+| `ProjectNotFoundError` | `PROJECT_NOT_FOUND` | Project not in storage |
+| `PartAlreadyExistsError` | `PART_ALREADY_EXISTS` | Part already exists |
+| `VersionAlreadyExistsError` | `VERSION_ALREADY_EXISTS` | Version already exists |
+| `ComboAlreadyExistsError` | `COMBO_ALREADY_EXISTS` | Combo already exists |
+| `ProjectAlreadyOpenError` | `PROJECT_ALREADY_OPEN` | Project already open |
+| `UnknownVersionReferenceError` | `UNKNOWN_VERSION_REFERENCE` | Combo references unknown version |
+| `UnknownPartReferenceError` | `UNKNOWN_PART_REFERENCE` | Combo references unknown part |
+| `IdentifierChangeError` | `IDENTIFIER_CHANGE` | Attempting to change entity ID |
+| `VersionReassignmentError` | `VERSION_REASSIGNMENT` | Moving version to different part |
+| `ProjectClosedError` | `PROJECT_CLOSED` | Operating on closed project |
+| `ProjectNotInStorageError` | `PROJECT_NOT_IN_STORAGE` | Project missing from storage |
+| `DuplicateIdentifierError` | `DUPLICATE_IDENTIFIER` | Duplicate ID in snapshot build |
+
+All errors include a `code` property for programmatic handling and an `entityId` property with the relevant identifier.
+
 ### Notes on middleware
 
 Middleware hooks are not yet implemented, but TODO markers in the code indicate where lifecycle events (`project:create`, `project:load`, `project:save`, etc.) will be exposed. These placeholders make it straightforward to add logging, validation, or policy enforcement layers in future iterations.
@@ -290,6 +339,7 @@ Middleware hooks are not yet implemented, but TODO markers in the code indicate 
 Key exports available today:
 
 - Domain models – `ProjectInit`, `PartDefinition`, `VersionCombo`, `VersionComboInit`, filter types (`PartFilter`, `VersionFilter`, `ComboFilter`), summary types (`PartSummary`, `VersionSummary`, `ComboSummary`), and related branded ID types (see `src/models`).
+- Error types – `VersionContainerError` (base class) and 15 specific error classes (`PartNotFoundError`, `VersionNotFoundError`, etc.) for type-safe error handling.
 - Utilities – `createPartId`, `createPartVersionId`, `createComboId`, `createAdapterId`, `cloneValue`, and the `AsyncMutex`.
 - Runtime services – `ProjectRegistry`, `ProjectHandle`, `ProjectEventDispatcher`, `buildProjectSnapshot`, plus a `SystemClock` you can replace with a deterministic clock in tests.
 - Storage – `InMemoryStorageProvider` for persistence during development or unit testing.

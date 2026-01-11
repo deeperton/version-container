@@ -1,10 +1,34 @@
-import { randomUUID } from 'node:crypto';
-
 import type { AdapterId, ComboId, PartId, PartVersionId, ProjectId } from '../models/base.js';
 
 /**
  * Helper methods for creating branded identifiers in a consistent way.
  */
+
+// Declare global crypto for TypeScript (available in modern browsers and Node.js 15.6.0+)
+declare global {
+  var crypto: { randomUUID: () => string } | undefined;
+}
+
+/**
+ * Cross-platform UUID v4 generator.
+ * Uses the Web Crypto API in browsers and Node.js, with a fallback for older environments.
+ */
+const randomUUID = (): string => {
+  // Prefer the modern crypto.randomUUID() available in:
+  // - Node.js 15.6.0+
+  // - Chrome 92+, Safari 15.4+, Firefox 95+
+  if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+
+  // Fallback for older environments using Math.random
+  // Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+  return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const d = c === '0' ? r : (r & (0x3 >> Number(c))) | (0x8 << Number(c));
+    return d.toString(16);
+  });
+};
 
 const createId = <IdType>(value: string | undefined, producer: () => string): IdType =>
   (value ?? producer()) as IdType;

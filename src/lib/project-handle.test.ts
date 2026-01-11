@@ -10,6 +10,10 @@ import type {
 } from '../models/base.js';
 import type { ProjectInit } from '../models/project.js';
 import { InMemoryStorageProvider } from '../storages/in-memory/in-memory-storage.js';
+import {
+  UnknownVersionReferenceError,
+  VersionReassignmentError,
+} from './errors.js';
 import { buildProjectSnapshot } from './project-snapshot-builder.js';
 import { ProjectHandle } from './project-handle.js';
 import { TestClock } from './mocks/test-clock.js';
@@ -322,7 +326,7 @@ describe('ProjectHandle', () => {
         ...version,
         partId: 'other-part' as PartId,
       }))
-    ).rejects.toThrow(/cannot be reassigned to a different part/);
+    ).rejects.toThrow(VersionReassignmentError);
   });
 
   it('addPartVersion on non-existent part throws error', async () => {
@@ -1070,7 +1074,7 @@ describe('ProjectHandle', () => {
             },
           ],
         })
-      ).rejects.toThrow(/does not belong to part/);
+      ).rejects.toThrow(UnknownVersionReferenceError);
     });
 
     it('snapshot contains newly added combo', async () => {

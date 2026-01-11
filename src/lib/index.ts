@@ -1,4 +1,5 @@
 export * from './clock.js';
+export * from './errors.js';
 export * from './ids.js';
 export * from './project-handle.js';
 export * from './project-registry.js';

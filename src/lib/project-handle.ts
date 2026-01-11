@@ -12,6 +12,20 @@ import type {
   VersionFilter,
   VersionSummary,
 } from '../models/queries.js';
+import {
+  ComboAlreadyExistsError,
+  ComboNotFoundError,
+  IdentifierChangeError,
+  PartAlreadyExistsError,
+  PartNotFoundError,
+  ProjectClosedError,
+  ProjectNotInStorageError,
+  UnknownPartReferenceError,
+  UnknownVersionReferenceError,
+  VersionAlreadyExistsError,
+  VersionNotFoundError,
+  VersionReassignmentError,
+} from './errors.js';
 import { cloneValue } from './utils/clone.js';
 import type { Clock } from './clock.js';
 import { AsyncMutex } from './utils/async-mutex.js';
@@ -319,7 +333,7 @@ export class ProjectHandle {
       this.assertOpen();
       const latest = await this.loader();
       if (!latest) {
-        throw new Error(`Project ${this.projectId as string} does not exist in storage.`);
+        throw new ProjectNotInStorageError(this.projectId);
       }
 
       this.snapshotCache = cloneValue(latest);
@@ -367,7 +381,7 @@ export class ProjectHandle {
     const result = await this.commitMutation<PartDefinition>((snapshot) => {
       const partId = createPartId(partInit.id);
       if (snapshot.parts.some((existing) => existing.id === partId)) {
-        throw new Error(`Part ${partId as string} already exists in project.`);
+        throw new PartAlreadyExistsError(partId);
       }
 
       const part: PartDefinition = {
@@ -385,10 +399,10 @@ export class ProjectHandle {
       for (const versionInit of partInit.versions ?? []) {
         const versionId = createPartVersionId(versionInit.id);
         if (existingVersionIds.has(versionId)) {
-          throw new Error(`Version ${versionId as string} already exists in project.`);
+          throw new VersionAlreadyExistsError(versionId);
         }
         if (newVersions.some((version) => version.id === versionId)) {
-          throw new Error(`Duplicate version identifier ${versionId as string} in part seed data.`);
+          throw new VersionAlreadyExistsError(versionId);
         }
 
         newVersions.push({
@@ -439,14 +453,14 @@ export class ProjectHandle {
     const result = await this.commitMutation<PartDefinition>((snapshot) => {
       const index = snapshot.parts.findIndex((part) => part.id === partId);
       if (index === -1) {
-        throw new Error(`Part ${partId as string} does not exist.`);
+        throw new PartNotFoundError(partId);
       }
 
       const previous = snapshot.parts[index]!;
       const nextPart = mutator(previous);
 
       if (nextPart.id !== previous.id) {
-        throw new Error('Part identifier cannot be changed during update.');
+        throw new IdentifierChangeError('Part');
       }
 
       const parts = [...snapshot.parts];
@@ -487,12 +501,12 @@ export class ProjectHandle {
   async addPartVersion(partId: PartId, versionInit: PartVersionInit): Promise<PartVersion> {
     const result = await this.commitMutation<PartVersion>((snapshot) => {
       if (!snapshot.parts.some((part) => part.id === partId)) {
-        throw new Error(`Cannot add version; part ${partId as string} does not exist.`);
+        throw new PartNotFoundError(partId);
       }
 
       const versionId = createPartVersionId(versionInit.id);
       if (snapshot.versions.some((version) => version.id === versionId)) {
-        throw new Error(`Version ${versionId as string} already exists.`);
+        throw new VersionAlreadyExistsError(versionId);
       }
 
       const version: PartVersion = {
@@ -542,18 +556,18 @@ export class ProjectHandle {
     const result = await this.commitMutation<PartVersion>((snapshot) => {
       const index = snapshot.versions.findIndex((version) => version.id === versionId);
       if (index === -1) {
-        throw new Error(`Version ${versionId as string} does not exist.`);
+        throw new VersionNotFoundError(versionId);
       }
 
       const previous = snapshot.versions[index]!;
       const nextVersion = mutator(previous);
 
       if (nextVersion.id !== previous.id) {
-        throw new Error('Version identifier cannot be changed during update.');
+        throw new IdentifierChangeError('Version');
       }
 
       if (nextVersion.partId !== previous.partId) {
-        throw new Error('Version cannot be reassigned to a different part.');
+        throw new VersionReassignmentError(versionId, previous.partId, nextVersion.partId);
       }
 
       const versions = [...snapshot.versions];
@@ -597,7 +611,7 @@ export class ProjectHandle {
     const result = await this.commitMutation<VersionCombo>((snapshot) => {
       const index = snapshot.combos.findIndex((combo) => combo.id === comboId);
       if (index === -1) {
-        throw new Error(`Combo ${comboId as string} does not exist.`);
+        throw new ComboNotFoundError(comboId);
       }
 
       const removedCombo = snapshot.combos[index]!;
@@ -638,7 +652,7 @@ export class ProjectHandle {
     const result = await this.commitMutation<PartVersion>((snapshot) => {
       const index = snapshot.versions.findIndex((version) => version.id === versionId);
       if (index === -1) {
-        throw new Error(`Version ${versionId as string} does not exist.`);
+        throw new VersionNotFoundError(versionId);
       }
 
       // Check if version is referenced by any combo
@@ -690,7 +704,7 @@ export class ProjectHandle {
     const result = await this.commitMutation<PartDefinition>((snapshot) => {
       const index = snapshot.parts.findIndex((part) => part.id === partId);
       if (index === -1) {
-        throw new Error(`Part ${partId as string} does not exist.`);
+        throw new PartNotFoundError(partId);
       }
 
       // Check if part is referenced by any combo
@@ -741,7 +755,7 @@ export class ProjectHandle {
     const result = await this.commitMutation<VersionCombo>((snapshot) => {
       const comboId = createComboId(comboInit.id);
       if (snapshot.combos.some((existing) => existing.id === comboId)) {
-        throw new Error(`Combo ${comboId as string} already exists in project.`);
+        throw new ComboAlreadyExistsError(comboId);
       }
 
       // Validate all bindings reference existing parts and versions
@@ -796,14 +810,14 @@ export class ProjectHandle {
     const result = await this.commitMutation<VersionCombo>((snapshot) => {
       const index = snapshot.combos.findIndex((combo) => combo.id === comboId);
       if (index === -1) {
-        throw new Error(`Combo ${comboId as string} does not exist.`);
+        throw new ComboNotFoundError(comboId);
       }
 
       const previous = snapshot.combos[index]!;
       const nextCombo = mutator(previous);
 
       if (nextCombo.id !== previous.id) {
-        throw new Error('Combo identifier cannot be changed during update.');
+        throw new IdentifierChangeError('Combo');
       }
 
       // Validate all bindings reference existing parts and versions
@@ -875,7 +889,7 @@ export class ProjectHandle {
 
     const snapshot = await this.loader();
     if (!snapshot) {
-      throw new Error(`Project ${this.projectId as string} does not exist in storage.`);
+      throw new ProjectNotInStorageError(this.projectId);
     }
 
     this.snapshotCache = cloneValue(snapshot);
@@ -884,7 +898,7 @@ export class ProjectHandle {
 
   private assertOpen(): void {
     if (this.closed) {
-      throw new Error(`Project ${this.projectId as string} has been closed.`);
+      throw new ProjectClosedError(this.projectId);
     }
   }
 
@@ -894,16 +908,14 @@ export class ProjectHandle {
 
     for (const binding of bindings) {
       if (!partIds.has(binding.partId)) {
-        throw new Error(`Unknown part referenced: ${binding.partId as string}`);
+        throw new UnknownPartReferenceError(binding.partId);
       }
       const owningPartId = versionToPart.get(binding.versionId);
       if (!owningPartId) {
-        throw new Error(`Unknown version referenced: ${binding.versionId as string}`);
+        throw new UnknownVersionReferenceError(binding.versionId);
       }
       if (owningPartId !== binding.partId) {
-        throw new Error(
-          `Version ${binding.versionId as string} does not belong to part ${binding.partId as string}`
-        );
+        throw new UnknownVersionReferenceError(binding.versionId);
       }
     }
   }

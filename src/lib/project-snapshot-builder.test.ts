@@ -9,6 +9,10 @@ import type {
   ProjectId,
 } from '../models/base.js';
 import type { ProjectInit } from '../models/project.js';
+import {
+  DuplicateIdentifierError,
+  UnknownVersionReferenceError,
+} from './errors.js';
 import { buildProjectSnapshot } from './project-snapshot-builder.js';
 import { TestClock } from './mocks/test-clock.js';
 
@@ -155,7 +159,7 @@ describe('buildProjectSnapshot', () => {
       ],
     };
 
-    expect(() => buildProjectSnapshot(init, { clock })).toThrow(/Duplicate part version identifier/);
+    expect(() => buildProjectSnapshot(init, { clock })).toThrow(DuplicateIdentifierError);
   });
 
   it('throws when combo binding references non-existent part', () => {
@@ -229,7 +233,7 @@ describe('buildProjectSnapshot', () => {
     };
 
     expect(() => buildProjectSnapshot(init, { clock })).toThrow(
-      /does not belong to part/
+      UnknownVersionReferenceError
     );
   });
 

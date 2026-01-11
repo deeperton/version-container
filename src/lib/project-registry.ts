@@ -17,6 +17,7 @@ import { ProjectHandle } from './project-handle.js';
 import { createProjectId } from './ids.js';
 import { ProjectEventDispatcher } from './events/project-events.js';
 import { cloneValue } from './utils/clone.js';
+import { ProjectAlreadyOpenError, ProjectNotFoundError } from './errors.js';
 
 interface ProjectRegistryOptions {
   readonly storage: StorageProvider;
@@ -52,7 +53,7 @@ export class ProjectRegistry {
   async open(init: ProjectInit): Promise<ProjectHandle> {
     const projectId = createProjectId(init.id);
     if (this.handles.has(projectId)) {
-      throw new Error(`Project ${projectId as string} is already open.`);
+      throw new ProjectAlreadyOpenError(projectId);
     }
 
     const snapshot = buildProjectSnapshot({ ...init, id: projectId }, { clock: this.clock });
@@ -82,7 +83,7 @@ export class ProjectRegistry {
 
     const snapshot = await this.storage.loadSnapshot(projectId);
     if (!snapshot) {
-      throw new Error(`Project ${projectId as string} could not be found.`);
+      throw new ProjectNotFoundError(projectId);
     }
 
     // TODO(middleware): project:load hook opportunity after snapshot retrieval.

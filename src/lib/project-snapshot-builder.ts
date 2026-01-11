@@ -3,6 +3,11 @@ import type { ProjectInit, ProjectSnapshot } from '../models/project.js';
 import type { PartDefinition, PartVersion } from '../models/part.js';
 import type { PartId, PartVersionId } from '../models/base.js';
 import type { VersionCombo } from '../models/combo.js';
+import {
+  DuplicateIdentifierError,
+  UnknownPartReferenceError,
+  UnknownVersionReferenceError,
+} from './errors.js';
 import type { Clock } from './clock.js';
 import {
   createComboId,
@@ -41,13 +46,13 @@ export const buildProjectSnapshot = (
   const versionIdMap = new Map<string, PartVersionId>();
   const versionToPart = new Map<PartVersionId, PartId>();
 
-  const ensureUnique = (map: Map<string, string>, id: string | undefined, type: string): void => {
+  const ensureUnique = (map: Map<string, string>, id: string | undefined, type: 'part' | 'version'): void => {
     if (!id) {
       return;
     }
 
     if (map.has(id)) {
-      throw new Error(`Duplicate ${type} identifier detected: ${id}`);
+      throw new DuplicateIdentifierError(type, id);
     }
 
     map.set(id, id);
@@ -72,7 +77,7 @@ export const buildProjectSnapshot = (
     parts.push(definition);
 
     for (const versionInit of partInit.versions ?? []) {
-      ensureUnique(versionIdMap, versionInit.id, 'part version');
+      ensureUnique(versionIdMap, versionInit.id, 'version');
       const versionId = createPartVersionId(versionInit.id);
       versionIdMap.set(versionId, versionId);
       versionToPart.set(versionId, partId);
@@ -91,13 +96,11 @@ export const buildProjectSnapshot = (
   const versionExists = (binding: { partId: PartId; versionId: PartVersionId }): void => {
     const owningPartId = versionToPart.get(binding.versionId);
     if (!owningPartId) {
-      throw new Error(`Unknown version referenced: ${binding.versionId as string}`);
+      throw new UnknownVersionReferenceError(binding.versionId);
     }
 
     if (owningPartId !== binding.partId) {
-      throw new Error(
-        `Version ${binding.versionId as string} does not belong to part ${binding.partId as string}`
-      );
+      throw new UnknownVersionReferenceError(binding.versionId);
     }
   };
 
@@ -111,7 +114,7 @@ export const buildProjectSnapshot = (
       bindings: comboInit.bindings.map((binding) => {
         const partId = partIdMap.get(binding.partId as unknown as string) ?? binding.partId;
         if (!partIdMap.has(partId)) {
-          throw new Error(`Unknown part referenced by combo: ${binding.partId as string}`);
+          throw new UnknownPartReferenceError(partId);
         }
 
         const versionId =
