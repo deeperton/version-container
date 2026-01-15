@@ -3,7 +3,7 @@ import type { StorageProvider } from '../../models/adapter.js';
 import type { ProjectSnapshot, ProjectSummary } from '../../models/project.js';
 import { cloneValue } from '../../lib/utils/clone.js';
 
-interface InMemoryStorageOptions {
+export interface InMemoryStorageOptions {
   readonly initialSnapshots?: readonly ProjectSnapshot[];
   readonly id?: string;
 }
