@@ -7,3 +7,5 @@ export { greet, add } from './example';
 export * from './models/index.js';
 export * from './lib/index.js';
 export * from './storages/in-memory/index.js';
+export * from './storages/local-storage/index.js';
+export * from './storages/storage-registry.js';

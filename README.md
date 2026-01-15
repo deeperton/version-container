@@ -5,7 +5,8 @@ Type-safe building blocks for managing projects composed of parts, versions, and
 ## Features
 
 - Strict TypeScript typings with branded identifiers for every domain entity.
-- In-memory storage provider for fast testing and prototyping.
+- **In-memory and localStorage storage providers** for testing and browser persistence.
+- **Runtime storage selection** via a registry pattern for pluggable backends.
 - `ProjectRegistry` and `ProjectHandle` abstractions to manage multiple open projects concurrently.
 - Deterministic project snapshot builder with validation for duplicate or unknown parts/versions.
 - Utility helpers for ID generation, cloning, and concurrency control.
@@ -330,6 +331,108 @@ try {
 
 All errors include a `code` property for programmatic handling and an `entityId` property with the relevant identifier.
 
+### 11. Storage Providers
+
+The library includes built-in storage providers for different environments:
+
+#### In-Memory Storage
+
+Fast, ephemeral storage ideal for testing and development:
+
+```ts
+import { InMemoryStorageProvider, ProjectRegistry } from 'version-container';
+
+const storage = new InMemoryStorageProvider();
+const registry = new ProjectRegistry({ storage });
+```
+
+You can optionally pre-populate the storage with initial snapshots:
+
+```ts
+const storage = new InMemoryStorageProvider({
+  initialSnapshots: [existingSnapshot],
+  id: 'test-storage',
+});
+```
+
+#### LocalStorage Storage
+
+Persists projects to browser localStorage for web applications:
+
+```ts
+import { LocalStorageStorageProvider, ProjectRegistry } from 'version-container';
+
+const storage = new LocalStorageStorageProvider({
+  keyPrefix: 'my-app:', // Optional: customize key prefix (default: 'version-container:')
+});
+const registry = new ProjectRegistry({ storage });
+```
+
+The localStorage provider handles:
+- Automatic serialization/deserialization of snapshots
+- Summary index for fast `listSummaries()` queries
+- Index rebuild if corrupted
+- Quota exceeded errors with descriptive messages
+
+#### Runtime Storage Selection
+
+Use the storage registry to select storage providers at runtime via string names:
+
+```ts
+import {
+  registerBuiltinStorageProviders,
+  createStorageProvider,
+  BuiltinStorageType,
+  ProjectRegistry,
+} from 'version-container';
+
+// Register built-in providers (in-memory, local-storage)
+registerBuiltinStorageProviders();
+
+// Select storage type at runtime (e.g., from config, environment, URL param)
+const storageType = process.env.STORAGE_TYPE ?? BuiltinStorageType.LOCAL_STORAGE;
+const storage = createStorageProvider(storageType);
+
+const registry = new ProjectRegistry({ storage });
+```
+
+#### Custom Storage Providers
+
+Register your own storage provider for IndexedDB, remote APIs, or other backends:
+
+```ts
+import { registerStorageProvider, createStorageProvider, type StorageProvider } from 'version-container';
+
+class IndexedDBStorageProvider implements StorageProvider {
+  readonly id = 'indexed-db';
+
+  async loadSnapshot(projectId: ProjectId): Promise<ProjectSnapshot | undefined> {
+    // ... IndexedDB implementation
+  }
+
+  async saveSnapshot(snapshot: ProjectSnapshot): Promise<void> {
+    // ... IndexedDB implementation
+  }
+
+  async listSummaries(): Promise<readonly ProjectSummary[]> {
+    // ... IndexedDB implementation
+  }
+}
+
+// Register the custom provider
+registerStorageProvider('indexed-db', () => new IndexedDBStorageProvider());
+
+// Use it
+const storage = createStorageProvider('indexed-db');
+```
+
+#### Built-in Storage Type Constants
+
+| Constant | Value | Class |
+|----------|-------|-------|
+| `BuiltinStorageType.IN_MEMORY` | `'in-memory'` | `InMemoryStorageProvider` |
+| `BuiltinStorageType.LOCAL_STORAGE` | `'local-storage'` | `LocalStorageStorageProvider` |
+
 ### Notes on middleware
 
 Middleware hooks are not yet implemented, but TODO markers in the code indicate where lifecycle events (`project:create`, `project:load`, `project:save`, etc.) will be exposed. These placeholders make it straightforward to add logging, validation, or policy enforcement layers in future iterations.
@@ -342,7 +445,8 @@ Key exports available today:
 - Error types – `VersionContainerError` (base class) and 15 specific error classes (`PartNotFoundError`, `VersionNotFoundError`, etc.) for type-safe error handling.
 - Utilities – `createPartId`, `createPartVersionId`, `createComboId`, `createAdapterId`, `cloneValue`, and the `AsyncMutex`.
 - Runtime services – `ProjectRegistry`, `ProjectHandle`, `ProjectEventDispatcher`, `buildProjectSnapshot`, plus a `SystemClock` you can replace with a deterministic clock in tests.
-- Storage – `InMemoryStorageProvider` for persistence during development or unit testing.
+- Storage providers – `InMemoryStorageProvider`, `LocalStorageStorageProvider` for browser persistence.
+- Storage registry – `registerBuiltinStorageProviders`, `createStorageProvider`, `registerStorageProvider`, `BuiltinStorageType` for runtime storage selection.
 
 ### Registry Methods
 
