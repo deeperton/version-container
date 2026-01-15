@@ -74,6 +74,32 @@ This is a TypeScript library project built with Vite for building and bundling, 
 
 ## Development Workflow
 
+### Git Workflow & Best Practices
+
+1. Context-Aware Branching
+Check Current State: Before starting work, check the current branch using git branch --show-current.
+Existing Branches: If you are already on a feature or fix branch that matches the current task, stay on that branch. Do not create a new one.
+
+New Work: If you are on main (or the default integration branch), create a new branch named `feature/description` or `fix/description` or `fix/issue-number` if issue number was provided.
+
+Linear History: Always keep the history straight. Use rebasing to bring in updates from the main branch; avoid merge commits unless specifically requested.
+
+2. Atomic Commits & "Commit-Before-Delete"
+Single Logic Changes: Each commit must be atomic. Do not mix refactoring with new feature code.
+
+Strict File Preservation: You are prohibited from deleting uncommitted project files. If a file is no longer needed:
+
+ - `git add` the file.
+ - `git commit` it (to ensure its last state is in the history).
+ - `git rm` the file in a separate, follow-up commit.
+
+No Branch Deletion: Never run `git branch -d` or `-D`. All branches must remain in the repository for human review.
+
+3. Safety & Documentation
+Verification: Run git status before every commit to verify the staging area.
+
+Commit Messages: Use the imperative mood (e.g., "Fix header alignment"). If the change isn't self-explanatory, add a body to the commit message explaining the "why."
+
 ### 1. **Setting Up**
 ```bash
 npm install              # Install dependencies
