@@ -74,6 +74,8 @@ This is a TypeScript library project built with Vite for building and bundling, 
 
 ## Development Workflow
 
+Use git!
+
 ### Git Workflow & Best Practices
 
 1. Context-Aware Branching
