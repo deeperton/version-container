@@ -15,44 +15,22 @@ describe('sortById', () => {
   });
 
   it('sorts items alphabetically by ID', () => {
-    const items = [
-      { id: 'zebra' },
-      { id: 'apple' },
-      { id: 'banana' },
-    ];
+    const items = [{ id: 'zebra' }, { id: 'apple' }, { id: 'banana' }];
     const result = sortById(items);
-    expect(result).toEqual([
-      { id: 'apple' },
-      { id: 'banana' },
-      { id: 'zebra' },
-    ]);
+    expect(result).toEqual([{ id: 'apple' }, { id: 'banana' }, { id: 'zebra' }]);
   });
 
   it('does not mutate original array', () => {
-    const items = [
-      { id: 'charlie' },
-      { id: 'alpha' },
-      { id: 'bravo' },
-    ];
+    const items = [{ id: 'charlie' }, { id: 'alpha' }, { id: 'bravo' }];
     const originalOrder = [...items];
     sortById(items);
     expect(items).toEqual(originalOrder);
   });
 
   it('sorts numeric string IDs correctly', () => {
-    const items = [
-      { id: '3' },
-      { id: '1' },
-      { id: '2' },
-      { id: '10' },
-    ];
+    const items = [{ id: '3' }, { id: '1' }, { id: '2' }, { id: '10' }];
     const result = sortById(items);
-    expect(result).toEqual([
-      { id: '1' },
-      { id: '10' },
-      { id: '2' },
-      { id: '3' },
-    ]);
+    expect(result).toEqual([{ id: '1' }, { id: '10' }, { id: '2' }, { id: '3' }]);
   });
 
   it('sorts UUID-like IDs correctly', () => {

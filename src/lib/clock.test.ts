@@ -7,8 +7,7 @@ describe('SystemClock', () => {
   it('returns valid ISO8601 format timestamp', () => {
     const clock = new SystemClock();
     const timestamp = clock.now();
-    const iso8601Regex =
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+    const iso8601Regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
     expect(timestamp).toMatch(iso8601Regex);
   });
 

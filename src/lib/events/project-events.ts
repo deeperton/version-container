@@ -66,6 +66,12 @@ export interface ProjectEventMap {
     readonly previous: VersionCombo;
     readonly snapshot: ProjectSnapshot;
   };
+  readonly 'partsOrder:updated': {
+    readonly projectId: ProjectId;
+    readonly partsOrder: readonly PartId[];
+    readonly previousOrder: readonly PartId[];
+    readonly snapshot: ProjectSnapshot;
+  };
 }
 
 export type ProjectEventName = keyof ProjectEventMap;

@@ -3,6 +3,12 @@ import type { PartDefinition, PartInit, PartVersion } from './part.js';
 import type { Lockfile, VersionCombo, VersionComboInit } from './combo.js';
 
 /**
+ * Metadata key for custom parts order.
+ * Value type: PartId[]
+ */
+export const METADATA_PARTS_ORDER = 'partsOrder' as const;
+
+/**
  * Parameters for creating a new project instance.
  */
 export interface ProjectInit {

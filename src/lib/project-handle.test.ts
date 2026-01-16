@@ -10,10 +10,7 @@ import type {
 } from '../models/base.js';
 import type { ProjectInit } from '../models/project.js';
 import { InMemoryStorageProvider } from '../storages/in-memory/in-memory-storage.js';
-import {
-  UnknownVersionReferenceError,
-  VersionReassignmentError,
-} from './errors.js';
+import { UnknownVersionReferenceError, VersionReassignmentError } from './errors.js';
 import { buildProjectSnapshot } from './project-snapshot-builder.js';
 import { ProjectHandle } from './project-handle.js';
 import { TestClock } from './mocks/test-clock.js';
@@ -162,12 +159,12 @@ describe('ProjectHandle', () => {
       {
         name: 'Update Part',
         parts: [
-        {
-          id: 'engine' as PartId,
-          name: 'Engine Controller',
-          adapterId: 'adapter-in-memory' as AdapterId,
-        },
-      ],
+          {
+            id: 'engine' as PartId,
+            name: 'Engine Controller',
+            adapterId: 'adapter-in-memory' as AdapterId,
+          },
+        ],
       },
       clock
     );
@@ -193,12 +190,12 @@ describe('ProjectHandle', () => {
       {
         name: 'Versions',
         parts: [
-        {
-          id: 'engine' as PartId,
-          name: 'Engine Controller',
-          adapterId: 'adapter-in-memory' as AdapterId,
-        },
-      ],
+          {
+            id: 'engine' as PartId,
+            name: 'Engine Controller',
+            adapterId: 'adapter-in-memory' as AdapterId,
+          },
+        ],
       },
       clock
     );
@@ -345,9 +342,9 @@ describe('ProjectHandle', () => {
     const clock = new TestClock(initialTime);
     const { handle } = await createHandle({ name: 'No Part' }, clock);
 
-    await expect(
-      handle.updatePart('non-existent' as PartId, (part) => part)
-    ).rejects.toThrow(/does not exist/);
+    await expect(handle.updatePart('non-existent' as PartId, (part) => part)).rejects.toThrow(
+      /does not exist/
+    );
   });
 
   it('updatePartVersion on non-existent version throws error', async () => {
@@ -504,9 +501,7 @@ describe('ProjectHandle', () => {
       const clock = new TestClock(initialTime);
       const { handle } = await createHandle({ name: 'No Combo' }, clock);
 
-      await expect(
-        handle.deleteCombo('non-existent' as ComboId)
-      ).rejects.toThrow(/does not exist/);
+      await expect(handle.deleteCombo('non-existent' as ComboId)).rejects.toThrow(/does not exist/);
     });
   });
 
@@ -541,8 +536,18 @@ describe('ProjectHandle', () => {
       expect(removed.id).toBe('v1' as PartVersionId);
 
       const snapshot = await handle.getSnapshot();
-      expect(snapshot.versions).toHaveLength(1);
-      expect(snapshot.versions[0]?.id).toBe('v2' as PartVersionId);
+      // Soft delete: version remains in snapshot but is marked as deleted
+      expect(snapshot.versions).toHaveLength(2);
+      expect(snapshot.versions.find((v) => v.id === 'v1')?.metadata?.deletedAt).toBeDefined();
+
+      // findVersions excludes deleted by default
+      const foundVersions = handle.findVersions();
+      expect(foundVersions).toHaveLength(1);
+      expect(foundVersions[0]).toBe('v2' as PartVersionId);
+
+      // getVersionById returns undefined for deleted versions
+      expect(await handle.getVersionById('v1' as PartVersionId)).toBeUndefined();
+      expect(await handle.getVersionById('v2' as PartVersionId)).toBeDefined();
     });
 
     it('emits version:removed event with correct payload', async () => {
@@ -582,9 +587,9 @@ describe('ProjectHandle', () => {
       const clock = new TestClock(initialTime);
       const { handle } = await createHandle({ name: 'No Version' }, clock);
 
-      await expect(
-        handle.deletePartVersion('non-existent' as PartVersionId)
-      ).rejects.toThrow(/does not exist/);
+      await expect(handle.deletePartVersion('non-existent' as PartVersionId)).rejects.toThrow(
+        /does not exist/
+      );
     });
 
     it('throws error when version is referenced by combo', async () => {
@@ -621,9 +626,9 @@ describe('ProjectHandle', () => {
         clock
       );
 
-      await expect(
-        handle.deletePartVersion('v1' as PartVersionId)
-      ).rejects.toThrow(/referenced by.*combo/);
+      await expect(handle.deletePartVersion('v1' as PartVersionId)).rejects.toThrow(
+        /referenced by.*combo/
+      );
     });
   });
 
@@ -659,9 +664,18 @@ describe('ProjectHandle', () => {
       expect(removed.id).toBe('engine' as PartId);
 
       const snapshot = await handle.getSnapshot();
-      expect(snapshot.parts).toHaveLength(1);
-      expect(snapshot.parts[0]?.id).toBe('wheels' as PartId);
-      expect(snapshot.versions).toHaveLength(0);
+      // Soft delete: part remains in snapshot but is marked as deleted
+      expect(snapshot.parts).toHaveLength(2);
+      expect(snapshot.parts.find((p) => p.id === 'engine')?.metadata?.deletedAt).toBeDefined();
+
+      // findParts excludes deleted by default
+      const foundParts = handle.findParts();
+      expect(foundParts).toHaveLength(1);
+      expect(foundParts[0]).toBe('wheels' as PartId);
+
+      // getPartById returns undefined for deleted parts
+      expect(await handle.getPartById('engine' as PartId)).toBeUndefined();
+      expect(await handle.getPartById('wheels' as PartId)).toBeDefined();
     });
 
     it('cascades to delete all versions of the part', async () => {
@@ -708,8 +722,24 @@ describe('ProjectHandle', () => {
       await handle.deletePart('engine' as PartId);
 
       const snapshot = await handle.getSnapshot();
-      expect(snapshot.versions).toHaveLength(1);
-      expect(snapshot.versions[0]?.id).toBe('w1' as PartVersionId);
+      // Soft delete: all versions remain but are marked as deleted
+      expect(snapshot.versions).toHaveLength(4);
+
+      // All engine versions should be marked as deleted
+      const engineVersions = snapshot.versions.filter((v) => v.partId === ('engine' as PartId));
+      expect(engineVersions).toHaveLength(3);
+      engineVersions.forEach((v) => {
+        expect(v.metadata?.deletedAt).toBeDefined();
+      });
+
+      // wheels version should not be deleted
+      const wheelsVersion = snapshot.versions.find((v) => v.id === ('w1' as PartVersionId));
+      expect(wheelsVersion?.metadata?.deletedAt).toBeUndefined();
+
+      // findVersions excludes deleted by default
+      const foundVersions = handle.findVersions();
+      expect(foundVersions).toHaveLength(1);
+      expect(foundVersions[0]).toBe('w1' as PartVersionId);
     });
 
     it('emits part:removed event with correct payload', async () => {
@@ -743,9 +773,7 @@ describe('ProjectHandle', () => {
       const clock = new TestClock(initialTime);
       const { handle } = await createHandle({ name: 'No Part' }, clock);
 
-      await expect(
-        handle.deletePart('non-existent' as PartId)
-      ).rejects.toThrow(/does not exist/);
+      await expect(handle.deletePart('non-existent' as PartId)).rejects.toThrow(/does not exist/);
     });
 
     it('throws error when part is referenced by combo', async () => {
@@ -782,9 +810,7 @@ describe('ProjectHandle', () => {
         clock
       );
 
-      await expect(
-        handle.deletePart('engine' as PartId)
-      ).rejects.toThrow(/referenced by.*combo/);
+      await expect(handle.deletePart('engine' as PartId)).rejects.toThrow(/referenced by.*combo/);
     });
   });
 
@@ -1309,9 +1335,9 @@ describe('ProjectHandle', () => {
       const clock = new TestClock(initialTime);
       const { handle } = await createHandle({ name: 'No Combo' }, clock);
 
-      await expect(
-        handle.updateCombo('non-existent' as ComboId, (combo) => combo)
-      ).rejects.toThrow(/does not exist/);
+      await expect(handle.updateCombo('non-existent' as ComboId, (combo) => combo)).rejects.toThrow(
+        /does not exist/
+      );
     });
 
     it('throws error when ID changes during update', async () => {

@@ -82,9 +82,7 @@ describe('StorageRegistry', () => {
     });
 
     it('should throw for unknown provider name', () => {
-      expect(() => createStorageProvider('unknown')).toThrow(
-        'Unknown storage provider "unknown"'
-      );
+      expect(() => createStorageProvider('unknown')).toThrow('Unknown storage provider "unknown"');
     });
 
     it('should list available providers in error message', () => {
@@ -104,7 +102,7 @@ describe('StorageRegistry', () => {
     });
 
     it('should register custom provider', () => {
-      const customFactory = (): StorageProvider => ({ id: 'custom-storage' } as StorageProvider);
+      const customFactory = (): StorageProvider => ({ id: 'custom-storage' }) as StorageProvider;
       registerStorageProvider('custom', customFactory);
 
       expect(hasStorageProvider('custom')).toBe(true);
@@ -113,7 +111,7 @@ describe('StorageRegistry', () => {
     });
 
     it('should throw on duplicate registration', () => {
-      const factory = (): StorageProvider => ({ id: 'test' } as StorageProvider);
+      const factory = (): StorageProvider => ({ id: 'test' }) as StorageProvider;
       registerStorageProvider('test', factory);
 
       expect(() => registerStorageProvider('test', factory)).toThrow(
@@ -128,10 +126,7 @@ describe('StorageRegistry', () => {
     });
 
     it('should unregister custom provider', () => {
-      registerStorageProvider(
-        'custom',
-        (): StorageProvider => ({ id: 'test' } as StorageProvider)
-      );
+      registerStorageProvider('custom', (): StorageProvider => ({ id: 'test' }) as StorageProvider);
       expect(unregisterStorageProvider('custom')).toBe(true);
       expect(hasStorageProvider('custom')).toBe(false);
     });
@@ -160,7 +155,7 @@ describe('StorageRegistry', () => {
     });
 
     it('should include custom providers', () => {
-      registerStorageProvider('custom', (): StorageProvider => ({ id: 'test' } as StorageProvider));
+      registerStorageProvider('custom', (): StorageProvider => ({ id: 'test' }) as StorageProvider);
 
       const providers = listStorageProviders();
       expect(providers).toContain('custom');

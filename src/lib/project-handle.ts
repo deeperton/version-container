@@ -15,6 +15,7 @@ import type {
 import {
   ComboAlreadyExistsError,
   ComboNotFoundError,
+  DuplicateIdentifierError,
   IdentifierChangeError,
   PartAlreadyExistsError,
   PartNotFoundError,
@@ -36,6 +37,8 @@ import {
   type ProjectEventName,
 } from './events/project-events.js';
 import { createComboId, createPartId, createPartVersionId } from './ids.js';
+import { METADATA_DELETED_AT } from '../models/part.js';
+import { METADATA_PARTS_ORDER } from '../models/project.js';
 
 interface ProjectHandleOptions {
   readonly projectId: ProjectId;
@@ -49,9 +52,10 @@ interface ProjectHandleOptions {
 
 type SnapshotMutator = (snapshot: ProjectSnapshot) => ProjectSnapshot;
 
-type MutationEventFactory = (
-  snapshot: ProjectSnapshot
-) => { readonly name: ProjectEventName; readonly payload: ProjectEventMap[ProjectEventName] };
+type MutationEventFactory = (snapshot: ProjectSnapshot) => {
+  readonly name: ProjectEventName;
+  readonly payload: ProjectEventMap[ProjectEventName];
+};
 
 type MutationEvent = ReturnType<MutationEventFactory>;
 
@@ -120,6 +124,10 @@ export class ProjectHandle {
 
     return snapshot.parts
       .filter((part) => {
+        // Exclude soft-deleted parts unless includeDeleted is true
+        if (!filter?.includeDeleted && this.isPartDeleted(part)) {
+          return false;
+        }
         if (filter?.adapterId !== undefined && part.adapterId !== filter.adapterId) {
           return false;
         }
@@ -155,6 +163,10 @@ export class ProjectHandle {
 
     return snapshot.versions
       .filter((version) => {
+        // Exclude soft-deleted versions unless includeDeleted is true
+        if (!filter?.includeDeleted && this.isVersionDeleted(version)) {
+          return false;
+        }
         if (filter?.partId !== undefined && version.partId !== filter.partId) {
           return false;
         }
@@ -216,25 +228,42 @@ export class ProjectHandle {
   /**
    * Gets a part by ID, or undefined if not found.
    */
-  getPartById(id: PartId): PartDefinition | undefined {
+  getPartById(id: PartId, options?: { includeDeleted?: boolean }): PartDefinition | undefined {
     const snapshot = this.snapshotCache;
     if (!snapshot) {
       return undefined;
     }
     const part = snapshot.parts.find((p) => p.id === id);
-    return part ? cloneValue(part) : undefined;
+    if (!part) {
+      return undefined;
+    }
+    // Return undefined for soft-deleted parts unless includeDeleted is true
+    if (!options?.includeDeleted && this.isPartDeleted(part)) {
+      return undefined;
+    }
+    return cloneValue(part);
   }
 
   /**
    * Gets a version by ID, or undefined if not found.
    */
-  getVersionById(id: PartVersionId): PartVersion | undefined {
+  getVersionById(
+    id: PartVersionId,
+    options?: { includeDeleted?: boolean }
+  ): PartVersion | undefined {
     const snapshot = this.snapshotCache;
     if (!snapshot) {
       return undefined;
     }
     const version = snapshot.versions.find((v) => v.id === id);
-    return version ? cloneValue(version) : undefined;
+    if (!version) {
+      return undefined;
+    }
+    // Return undefined for soft-deleted versions unless includeDeleted is true
+    if (!options?.includeDeleted && this.isVersionDeleted(version)) {
+      return undefined;
+    }
+    return cloneValue(version);
   }
 
   /**
@@ -313,6 +342,50 @@ export class ProjectHandle {
    */
   getCombosByVersionId(versionId: PartVersionId): readonly ComboId[] {
     return this.findCombos({ versionId });
+  }
+
+  /**
+   * Checks if a part is soft-deleted by examining metadata.deletedAt
+   */
+  private isPartDeleted(part: PartDefinition): boolean {
+    return part.metadata?.[METADATA_DELETED_AT] !== undefined;
+  }
+
+  /**
+   * Checks if a version is soft-deleted by examining metadata.deletedAt
+   */
+  private isVersionDeleted(version: PartVersion): boolean {
+    return version.metadata?.[METADATA_DELETED_AT] !== undefined;
+  }
+
+  /**
+   * Gets the parts order from project metadata, or returns all part IDs if not set
+   */
+  private getPartsOrderFromSnapshot(snapshot: ProjectSnapshot): readonly PartId[] {
+    const partsOrder = snapshot.project.metadata?.[METADATA_PARTS_ORDER];
+    if (Array.isArray(partsOrder)) {
+      return partsOrder as PartId[];
+    }
+    // Default: return all part IDs in sorted order
+    return snapshot.parts.map((p) => p.id);
+  }
+
+  /**
+   * Validates that all part IDs exist in the project and are not duplicates
+   */
+  private validatePartsOrder(partIds: readonly PartId[], snapshot: ProjectSnapshot): void {
+    const existingIds = new Set(snapshot.parts.map((p) => p.id));
+    const seen = new Set<PartId>();
+
+    for (const partId of partIds) {
+      if (!existingIds.has(partId)) {
+        throw new PartNotFoundError(partId);
+      }
+      if (seen.has(partId)) {
+        throw new DuplicateIdentifierError('part', partId as string);
+      }
+      seen.add(partId);
+    }
   }
 
   /**
@@ -655,6 +728,13 @@ export class ProjectHandle {
         throw new VersionNotFoundError(versionId);
       }
 
+      const previous = snapshot.versions[index]!;
+
+      // Check if already soft-deleted
+      if (this.isVersionDeleted(previous)) {
+        throw new Error(`Version ${versionId as string} is already deleted.`);
+      }
+
       // Check if version is referenced by any combo
       const combosUsingVersion = snapshot.combos.filter((combo) =>
         combo.bindings.some((binding) => binding.versionId === versionId)
@@ -665,23 +745,34 @@ export class ProjectHandle {
         );
       }
 
-      const removedVersion = snapshot.versions[index]!;
+      // Soft delete by setting deletedAt in metadata
+      const deletedVersion: PartVersion = {
+        ...previous,
+        metadata: {
+          ...previous.metadata,
+          [METADATA_DELETED_AT]: this.clock.now(),
+        },
+      };
+
+      const versions = [...snapshot.versions];
+      versions[index] = deletedVersion;
+
       const nextSnapshot: ProjectSnapshot = {
         ...snapshot,
-        versions: sortById(snapshot.versions.filter((v) => v.id !== versionId)),
+        versions: sortById(versions),
       };
 
       return {
         snapshot: nextSnapshot,
-        result: removedVersion,
+        result: previous, // Return the state before deletion
         events: [
           (finalSnapshot: ProjectSnapshot): MutationEvent => ({
             name: 'version:removed',
             payload: {
               projectId: this.projectId,
-              partId: removedVersion.partId,
+              partId: deletedVersion.partId,
               versionId,
-              removedVersion,
+              removedVersion: deletedVersion,
               snapshot: finalSnapshot,
             },
           }),
@@ -707,6 +798,13 @@ export class ProjectHandle {
         throw new PartNotFoundError(partId);
       }
 
+      const previous = snapshot.parts[index]!;
+
+      // Check if already soft-deleted
+      if (this.isPartDeleted(previous)) {
+        throw new Error(`Part ${partId as string} is already deleted.`);
+      }
+
       // Check if part is referenced by any combo
       const combosUsingPart = snapshot.combos.filter((combo) =>
         combo.bindings.some((binding) => binding.partId === partId)
@@ -717,23 +815,47 @@ export class ProjectHandle {
         );
       }
 
-      const removedPart = snapshot.parts[index]!;
+      // Soft delete by setting deletedAt in metadata
+      const deletedPart: PartDefinition = {
+        ...previous,
+        metadata: {
+          ...previous.metadata,
+          [METADATA_DELETED_AT]: this.clock.now(),
+        },
+      };
+
+      const parts = [...snapshot.parts];
+      parts[index] = deletedPart;
+
+      // Cascade: soft-delete all versions of this part
+      const versions = snapshot.versions.map((version) =>
+        version.partId === partId && !this.isVersionDeleted(version)
+          ? {
+              ...version,
+              metadata: {
+                ...version.metadata,
+                [METADATA_DELETED_AT]: this.clock.now(),
+              },
+            }
+          : version
+      );
+
       const nextSnapshot: ProjectSnapshot = {
         ...snapshot,
-        parts: sortById(snapshot.parts.filter((part) => part.id !== partId)),
-        versions: sortById(snapshot.versions.filter((version) => version.partId !== partId)),
+        parts: sortById(parts),
+        versions: sortById(versions),
       };
 
       return {
         snapshot: nextSnapshot,
-        result: removedPart,
+        result: previous, // Return the state before deletion
         events: [
           (finalSnapshot: ProjectSnapshot): MutationEvent => ({
             name: 'part:removed',
             payload: {
               projectId: this.projectId,
               partId,
-              removedPart,
+              removedPart: deletedPart,
               snapshot: finalSnapshot,
             },
           }),
@@ -849,6 +971,196 @@ export class ProjectHandle {
               snapshot: finalSnapshot,
             },
           }),
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
+      };
+    });
+
+    return cloneValue(result);
+  }
+
+  /**
+   * Gets the current parts order from project metadata.
+   * Returns all part IDs if no custom order is defined.
+   */
+  getPartsOrder(): readonly PartId[] {
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return [];
+    }
+    return this.getPartsOrderFromSnapshot(snapshot);
+  }
+
+  /**
+   * Sets the parts order, replacing the entire order at once.
+   * All part IDs must exist in the project and must be unique.
+   */
+  async setPartsOrder(partIds: readonly PartId[]): Promise<void> {
+    await this.commitMutation<void>((snapshot) => {
+      // Validate all part IDs exist and are unique
+      this.validatePartsOrder(partIds, snapshot);
+
+      const nextSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        project: {
+          ...snapshot.project,
+          metadata: {
+            ...snapshot.project.metadata,
+            [METADATA_PARTS_ORDER]: partIds,
+          },
+        },
+      };
+
+      return {
+        snapshot: nextSnapshot,
+        result: undefined,
+        events: [
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'partsOrder:updated',
+            payload: {
+              projectId: this.projectId,
+              partsOrder: partIds,
+              previousOrder: this.getPartsOrderFromSnapshot(snapshot),
+              snapshot: finalSnapshot,
+            },
+          }),
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
+      };
+    });
+  }
+
+  /**
+   * Moves a single part to a new position in the order.
+   * Creates a parts order if one doesn't exist.
+   */
+  async movePartOrder(partId: PartId, newPosition: number): Promise<void> {
+    await this.commitMutation<void>((snapshot) => {
+      // Verify part exists
+      if (!snapshot.parts.some((p) => p.id === partId)) {
+        throw new PartNotFoundError(partId);
+      }
+
+      const currentOrder = this.getPartsOrderFromSnapshot(snapshot);
+
+      // If part is not in current order, we need to add it
+      let workingOrder = [...currentOrder];
+      const currentIndex = workingOrder.findIndex((id) => id === partId);
+
+      if (currentIndex === -1) {
+        // Part not in order - insert at new position
+        workingOrder.splice(newPosition, 0, partId);
+      } else {
+        // Remove from current position and insert at new position
+        workingOrder.splice(currentIndex, 1);
+        workingOrder.splice(newPosition, 0, partId);
+      }
+
+      const nextSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        project: {
+          ...snapshot.project,
+          metadata: {
+            ...snapshot.project.metadata,
+            [METADATA_PARTS_ORDER]: workingOrder,
+          },
+        },
+      };
+
+      return {
+        snapshot: nextSnapshot,
+        result: undefined,
+        events: [
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'partsOrder:updated',
+            payload: {
+              projectId: this.projectId,
+              partsOrder: workingOrder,
+              previousOrder: currentOrder,
+              snapshot: finalSnapshot,
+            },
+          }),
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
+      };
+    });
+  }
+
+  /**
+   * Permanently removes soft-deleted parts from the project.
+   * Returns the removed parts.
+   */
+  async cleanDeletedParts(): Promise<readonly PartDefinition[]> {
+    const result = await this.commitMutation<readonly PartDefinition[]>((snapshot) => {
+      const deletedParts = snapshot.parts.filter((p) => this.isPartDeleted(p));
+
+      if (deletedParts.length === 0) {
+        return {
+          snapshot,
+          result: [],
+          events: [],
+        };
+      }
+
+      // Remove deleted parts from the array
+      const nextSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        parts: sortById(snapshot.parts.filter((p) => !this.isPartDeleted(p))),
+        // Also remove versions belonging to deleted parts
+        versions: sortById(
+          snapshot.versions.filter((v) => !deletedParts.some((p) => p.id === v.partId))
+        ),
+      };
+
+      return {
+        snapshot: nextSnapshot,
+        result: deletedParts,
+        events: [
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
+      };
+    });
+
+    return cloneValue(result);
+  }
+
+  /**
+   * Permanently removes soft-deleted versions from the project.
+   * Returns the removed versions.
+   */
+  async cleanDeletedVersions(): Promise<readonly PartVersion[]> {
+    const result = await this.commitMutation<readonly PartVersion[]>((snapshot) => {
+      const deletedVersions = snapshot.versions.filter((v) => this.isVersionDeleted(v));
+
+      if (deletedVersions.length === 0) {
+        return {
+          snapshot,
+          result: [],
+          events: [],
+        };
+      }
+
+      const nextSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        versions: sortById(snapshot.versions.filter((v) => !this.isVersionDeleted(v))),
+      };
+
+      return {
+        snapshot: nextSnapshot,
+        result: deletedVersions,
+        events: [
           (finalSnapshot: ProjectSnapshot): MutationEvent => ({
             name: 'project:updated',
             payload: { projectId: this.projectId, snapshot: finalSnapshot },

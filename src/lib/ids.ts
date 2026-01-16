@@ -17,7 +17,10 @@ const randomUUID = (): string => {
   // Prefer the modern crypto.randomUUID() available in:
   // - Node.js 15.6.0+
   // - Chrome 92+, Safari 15.4+, Firefox 95+
-  if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+  if (
+    typeof globalThis.crypto !== 'undefined' &&
+    typeof globalThis.crypto.randomUUID === 'function'
+  ) {
     return globalThis.crypto.randomUUID();
   }
 
@@ -36,7 +39,8 @@ const createId = <IdType>(value: string | undefined, producer: () => string): Id
 /**
  * Generates or brands a `ProjectId`.
  */
-export const createProjectId = (value?: string): ProjectId => createId<ProjectId>(value, randomUUID);
+export const createProjectId = (value?: string): ProjectId =>
+  createId<ProjectId>(value, randomUUID);
 
 /**
  * Generates or brands a `PartId`.
@@ -57,4 +61,5 @@ export const createComboId = (value?: string): ComboId => createId<ComboId>(valu
 /**
  * Generates or brands an `AdapterId`.
  */
-export const createAdapterId = (value?: string): AdapterId => createId<AdapterId>(value, randomUUID);
+export const createAdapterId = (value?: string): AdapterId =>
+  createId<AdapterId>(value, randomUUID);

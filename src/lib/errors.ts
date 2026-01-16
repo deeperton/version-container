@@ -1,9 +1,4 @@
-import type {
-  ComboId,
-  PartId,
-  PartVersionId,
-  ProjectId,
-} from '../models/base.js';
+import type { ComboId, PartId, PartVersionId, ProjectId } from '../models/base.js';
 
 /**
  * Base error class for all version-container errors.
@@ -57,7 +52,9 @@ export type VersionContainerErrorCode =
   | 'VERSION_REASSIGNMENT'
   | 'PROJECT_CLOSED'
   | 'PROJECT_NOT_IN_STORAGE'
-  | 'DUPLICATE_IDENTIFIER';
+  | 'DUPLICATE_IDENTIFIER'
+  | 'PART_ALREADY_DELETED'
+  | 'VERSION_ALREADY_DELETED';
 
 // ============================================================================
 // NotFoundError subclasses
@@ -282,5 +279,31 @@ export class DuplicateIdentifierError extends VersionContainerError {
     super(`Duplicate ${entityType} identifier detected: ${identifier}`, identifier);
     this.entityType = entityType;
     this.identifier = identifier;
+  }
+}
+
+/**
+ * Thrown when attempting to delete a part that is already soft-deleted.
+ */
+export class PartAlreadyDeletedError extends VersionContainerError {
+  readonly code = 'PART_ALREADY_DELETED' as const;
+  readonly partId: PartId;
+
+  constructor(partId: PartId) {
+    super(`Part ${partId as string} is already deleted.`, partId as string);
+    this.partId = partId;
+  }
+}
+
+/**
+ * Thrown when attempting to delete a version that is already soft-deleted.
+ */
+export class VersionAlreadyDeletedError extends VersionContainerError {
+  readonly code = 'VERSION_ALREADY_DELETED' as const;
+  readonly versionId: PartVersionId;
+
+  constructor(versionId: PartVersionId) {
+    super(`Version ${versionId as string} is already deleted.`, versionId as string);
+    this.versionId = versionId;
   }
 }

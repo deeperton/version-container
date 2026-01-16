@@ -71,9 +71,7 @@ describe('LocalStorageStorageProvider', () => {
 
     it('should throw when localStorage is not available', () => {
       vi.unstubAllGlobals();
-      expect(() => new LocalStorageStorageProvider()).toThrow(
-        'localStorage is not available'
-      );
+      expect(() => new LocalStorageStorageProvider()).toThrow('localStorage is not available');
     });
   });
 
