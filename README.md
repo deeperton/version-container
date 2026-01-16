@@ -143,7 +143,81 @@ await registry.deleteCombo(handle.projectId, baselineComboId);
 
 The `addCombo` and `updateCombo` methods validate that all referenced parts and versions exist, and that each version belongs to its corresponding part. The `updateCombo` method preserves the original `createdAt` timestamp while updating `updatedAt`.
 
-### 5. Delete obsolete parts and versions
+### 5. Manage parts order
+
+Projects can define a custom ordering for parts that persists independently of the array order. This is useful for UI display or when the logical order differs from the default ID-based sorting:
+
+```ts
+// Get the current parts order (returns all parts if no custom order is set)
+const order = await registry.getPartsOrder(handle.projectId);
+console.log(order); // ['part-1', 'part-2', ...]
+
+// Set a complete custom order
+await registry.setPartsOrder(handle.projectId, [
+  createPartId('wheels'),
+  createPartId('engine'),
+  createPartId('chassis'),
+]);
+
+// Move a single part to a new position
+await registry.movePartOrder(handle.projectId, createPartId('engine'), 0);
+```
+
+The parts order is stored in `project.metadata.partsOrder` and validates that all referenced part IDs exist in the project. Changes to the order emit a `partsOrder:updated` event.
+
+### 6. Soft delete and clean operations
+
+When deleting parts or versions, the library uses soft delete by default. Items are marked as deleted via `metadata.deletedAt` rather than being immediately removed:
+
+```ts
+// Soft delete a version (marks it as deleted but keeps it in the snapshot)
+await registry.deletePartVersion(handle.projectId, engineV1Id);
+
+// Soft delete a part (cascades to mark all its versions as deleted)
+await registry.deletePart(handle.projectId, enginePartId);
+```
+
+Soft-deleted items are excluded from queries by default:
+
+```ts
+// findParts excludes soft-deleted parts
+const activeParts = await registry.findParts(handle.projectId);
+console.log(activeParts.length); // Does not include deleted parts
+
+// Include soft-deleted items with the includeDeleted option
+const allParts = await registry.findParts(handle.projectId, {
+  includeDeleted: true,
+});
+console.log(allParts.length); // Includes deleted parts
+
+// getPartById returns undefined for deleted items (default behavior)
+const part = await registry.getPartById(handle.projectId, enginePartId);
+console.log(part); // undefined
+
+// Include deleted items when getting by ID
+const deletedPart = await registry.getPartById(
+  handle.projectId,
+  enginePartId,
+  { includeDeleted: true }
+);
+console.log(deletedPart?.metadata?.deletedAt); // ISO8601 timestamp
+```
+
+To permanently remove soft-deleted items, use the clean operations:
+
+```ts
+// Permanently remove all soft-deleted parts from the project
+const removedParts = await registry.cleanDeletedParts(handle.projectId);
+console.log(removedParts); // Array of removed part definitions
+
+// Permanently remove all soft-deleted versions
+const removedVersions = await registry.cleanDeletedVersions(handle.projectId);
+console.log(removedVersions); // Array of removed version definitions
+```
+
+Clean operations permanently remove items from the snapshot. This is useful for reclaiming storage after soft-deleted items are no longer needed.
+
+### 7. Delete obsolete parts and versions
 
 When parts or versions are no longer needed, you can delete them. The library enforces referential integrity—parts and versions referenced by any combo cannot be deleted:
 
@@ -161,14 +235,14 @@ await registry.updateCombo(handle.projectId, baselineComboId, (combo) => ({
   ),
 }));
 
-// Now the deletion succeeds
+// Now the deletion succeeds (soft delete - marked as deleted)
 await registry.deletePartVersion(handle.projectId, engineV1Id);
 
-// Delete a part (cascades to delete all its versions)
+// Delete a part (cascades to mark all its versions as deleted)
 await registry.deletePart(handle.projectId, enginePartId);
 ```
 
-### 6. Use the low-level update API
+### 8. Use the low-level update API
 
 For advanced scenarios, the handle still exposes `update` for direct snapshot manipulation:
 
@@ -186,7 +260,7 @@ await handle.save(); // persists only if the snapshot changed
 
 All updates automatically receive a fresh `updatedAt` timestamp. Because mutations occur inside a mutex, concurrent callers cannot corrupt the in-memory cache.
 
-### 7. Work with multiple projects
+### 9. Work with multiple projects
 
 `ProjectRegistry.load` rehydrates an existing project (or reuses the currently open handle). You can list or close open projects at any time:
 
@@ -201,7 +275,7 @@ await registry.close(handle.projectId); // closes and saves by default
 
 When `close` executes it optionally flushes dirty snapshots and releases cached resources so the project can be loaded elsewhere.
 
-### 8. Subscribe to lifecycle events
+### 10. Subscribe to lifecycle events
 
 Every mutating operation emits typed events through a central dispatcher. Middleware and tooling can subscribe once and react to structural changes.
 
@@ -220,9 +294,9 @@ await registry.updatePartVersion(handle.projectId, newVersionId, (current) => ({
 unsubscribe();
 ```
 
-Available events today include `project:created`, `project:loaded`, `project:updated`, `project:closed`, `part:added`, `part:updated`, `part:removed`, `version:added`, `version:updated`, `version:removed`, `combo:added`, `combo:updated`, and `combo:removed`. Future middleware hooks will piggy-back on the same dispatcher.
+Available events today include `project:created`, `project:loaded`, `project:updated`, `project:closed`, `part:added`, `part:updated`, `part:removed`, `version:added`, `version:updated`, `version:removed`, `combo:added`, `combo:updated`, `combo:removed`, and `partsOrder:updated`. Future middleware hooks will piggy-back on the same dispatcher.
 
-### 9. Query and filter parts, versions, and combos
+### 11. Query and filter parts, versions, and combos
 
 The library provides synchronous query methods on `ProjectHandle` (and async delegations on `ProjectRegistry`) for finding entities by various criteria. Queries operate on the in-memory snapshot for fast lookups.
 
@@ -281,8 +355,9 @@ Filter behavior:
 - **tags**: Any match (returns entities that have at least one of the specified tags)
 - **metadata**: Subset match (all filter key/values must exist in the target)
 - **partId/versionId**: Exact match on the respective field
+- **includeDeleted**: When true, includes soft-deleted items (default: false)
 
-### 10. Error handling
+### 12. Error handling
 
 All library errors extend from `VersionContainerError`, enabling type-safe error handling:
 
@@ -328,10 +403,12 @@ try {
 | `ProjectClosedError` | `PROJECT_CLOSED` | Operating on closed project |
 | `ProjectNotInStorageError` | `PROJECT_NOT_IN_STORAGE` | Project missing from storage |
 | `DuplicateIdentifierError` | `DUPLICATE_IDENTIFIER` | Duplicate ID in snapshot build |
+| `PartAlreadyDeletedError` | `PART_ALREADY_DELETED` | Part is already soft-deleted |
+| `VersionAlreadyDeletedError` | `VERSION_ALREADY_DELETED` | Version is already soft-deleted |
 
 All errors include a `code` property for programmatic handling and an `entityId` property with the relevant identifier.
 
-### 11. Storage Providers
+### 13. Storage Providers
 
 The library includes built-in storage providers for different environments:
 
@@ -459,21 +536,28 @@ Key exports available today:
 | **Part Management** | |
 | `addPart(projectId, init)` | Add a part to a project |
 | `updatePart(projectId, id, mutator)` | Update a part |
-| `deletePart(projectId, id)` | Delete a part (cascades to versions) |
+| `deletePart(projectId, id)` | Soft delete a part (cascades to versions) |
 | **Version Management** | |
 | `addPartVersion(projectId, partId, init)` | Add a version to a part |
 | `updatePartVersion(projectId, id, mutator)` | Update a version |
-| `deletePartVersion(projectId, id)` | Delete a version |
+| `deletePartVersion(projectId, id)` | Soft delete a version |
 | **Combo Management** | |
 | `addCombo(projectId, init)` | Add a combo |
 | `updateCombo(projectId, id, mutator)` | Update a combo |
 | `deleteCombo(projectId, id)` | Delete a combo |
+| **Parts Order** | |
+| `getPartsOrder(projectId)` | Get current parts order |
+| `setPartsOrder(projectId, partIds)` | Set complete parts order |
+| `movePartOrder(projectId, partId, position)` | Move part to new position |
+| **Clean Operations** | |
+| `cleanDeletedParts(projectId)` | Permanently remove soft-deleted parts |
+| `cleanDeletedVersions(projectId)` | Permanently remove soft-deleted versions |
 | **Query Methods** | |
 | `findParts(projectId, filter?)` | Find parts by adapter, tags, or metadata |
 | `findVersions(projectId, filter?)` | Find versions by part, label, or metadata |
 | `findCombos(projectId, filter?)` | Find combos by part/version reference or metadata |
-| `getPartById(projectId, id)` | Get full part entity by ID |
-| `getVersionById(projectId, id)` | Get full version entity by ID |
+| `getPartById(projectId, id, options?)` | Get full part entity by ID |
+| `getVersionById(projectId, id, options?)` | Get full version entity by ID |
 | `getComboById(projectId, id)` | Get full combo entity by ID |
 | `getPartSummary(projectId, id)` | Get lightweight part summary |
 | `getVersionSummary(projectId, id)` | Get lightweight version summary |
