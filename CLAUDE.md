@@ -74,7 +74,7 @@ This is a TypeScript library project built with Vite for building and bundling, 
 
 ## Development Workflow
 
-Use git!
+### 0. Use git!
 
 ### Git Workflow & Best Practices
 
@@ -130,6 +130,10 @@ npm test                 # Run all tests
 ```bash
 npm run build            # Build for production
 ```
+
+### 5. Finalization
+
+Update README.md after a feature or changes in API were done.
 
 ## File Structure
 
