@@ -175,10 +175,7 @@ export class ProjectRegistry {
   /**
    * Deletes a version from the specified project.
    */
-  async deletePartVersion(
-    projectId: ProjectId,
-    versionId: PartVersionId
-  ): Promise<PartVersion> {
+  async deletePartVersion(projectId: ProjectId, versionId: PartVersionId): Promise<PartVersion> {
     const handle = await this.load(projectId);
     return handle.deletePartVersion(versionId);
   }
@@ -236,7 +233,10 @@ export class ProjectRegistry {
   /**
    * Finds version IDs matching the given filter.
    */
-  async findVersions(projectId: ProjectId, filter?: VersionFilter): Promise<readonly PartVersionId[]> {
+  async findVersions(
+    projectId: ProjectId,
+    filter?: VersionFilter
+  ): Promise<readonly PartVersionId[]> {
     const handle = await this.load(projectId);
     return handle.findVersions(filter);
   }
@@ -252,17 +252,25 @@ export class ProjectRegistry {
   /**
    * Gets a part by ID.
    */
-  async getPartById(projectId: ProjectId, id: PartId): Promise<PartDefinition | undefined> {
+  async getPartById(
+    projectId: ProjectId,
+    id: PartId,
+    options?: { includeDeleted?: boolean }
+  ): Promise<PartDefinition | undefined> {
     const handle = await this.load(projectId);
-    return handle.getPartById(id);
+    return handle.getPartById(id, options);
   }
 
   /**
    * Gets a version by ID.
    */
-  async getVersionById(projectId: ProjectId, id: PartVersionId): Promise<PartVersion | undefined> {
+  async getVersionById(
+    projectId: ProjectId,
+    id: PartVersionId,
+    options?: { includeDeleted?: boolean }
+  ): Promise<PartVersion | undefined> {
     const handle = await this.load(projectId);
-    return handle.getVersionById(id);
+    return handle.getVersionById(id, options);
   }
 
   /**
@@ -284,7 +292,10 @@ export class ProjectRegistry {
   /**
    * Gets a version summary by ID.
    */
-  async getVersionSummary(projectId: ProjectId, id: PartVersionId): Promise<VersionSummary | undefined> {
+  async getVersionSummary(
+    projectId: ProjectId,
+    id: PartVersionId
+  ): Promise<VersionSummary | undefined> {
     const handle = await this.load(projectId);
     return handle.getVersionSummary(id);
   }
@@ -300,7 +311,10 @@ export class ProjectRegistry {
   /**
    * Gets all version IDs for a given part.
    */
-  async getVersionsByPartId(projectId: ProjectId, partId: PartId): Promise<readonly PartVersionId[]> {
+  async getVersionsByPartId(
+    projectId: ProjectId,
+    partId: PartId
+  ): Promise<readonly PartVersionId[]> {
     const handle = await this.load(projectId);
     return handle.getVersionsByPartId(partId);
   }
@@ -316,9 +330,52 @@ export class ProjectRegistry {
   /**
    * Gets all combo IDs that reference a given version.
    */
-  async getCombosByVersionId(projectId: ProjectId, versionId: PartVersionId): Promise<readonly ComboId[]> {
+  async getCombosByVersionId(
+    projectId: ProjectId,
+    versionId: PartVersionId
+  ): Promise<readonly ComboId[]> {
     const handle = await this.load(projectId);
     return handle.getCombosByVersionId(versionId);
+  }
+
+  /**
+   * Gets the current parts order for a project.
+   */
+  async getPartsOrder(projectId: ProjectId): Promise<readonly PartId[]> {
+    const handle = await this.load(projectId);
+    return handle.getPartsOrder();
+  }
+
+  /**
+   * Sets the parts order for a project.
+   */
+  async setPartsOrder(projectId: ProjectId, partIds: readonly PartId[]): Promise<void> {
+    const handle = await this.load(projectId);
+    return handle.setPartsOrder(partIds);
+  }
+
+  /**
+   * Moves a part to a new position in the order.
+   */
+  async movePartOrder(projectId: ProjectId, partId: PartId, newPosition: number): Promise<void> {
+    const handle = await this.load(projectId);
+    return handle.movePartOrder(partId, newPosition);
+  }
+
+  /**
+   * Permanently removes deleted parts from a project.
+   */
+  async cleanDeletedParts(projectId: ProjectId): Promise<readonly PartDefinition[]> {
+    const handle = await this.load(projectId);
+    return handle.cleanDeletedParts();
+  }
+
+  /**
+   * Permanently removes deleted versions from a project.
+   */
+  async cleanDeletedVersions(projectId: ProjectId): Promise<readonly PartVersion[]> {
+    const handle = await this.load(projectId);
+    return handle.cleanDeletedVersions();
   }
 
   private createHandle(projectId: ProjectId, snapshot?: ProjectSnapshot): ProjectHandle {
