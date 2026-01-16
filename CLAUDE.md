@@ -77,7 +77,7 @@ This is a TypeScript library project built with Vite for building and bundling, 
 ### Git Workflow & Best Practices
 
 1. Context-Aware Branching
-Check Current State: Before starting work, check the current branch using git branch --show-current.
+Check Current State: Before starting work, check the current branch.
 Existing Branches: If you are already on a feature or fix branch that matches the current task, stay on that branch. Do not create a new one.
 
 New Work: If you are on main (or the default integration branch), create a new branch named `feature/description` or `fix/description` or `fix/issue-number` if issue number was provided.
