@@ -13,6 +13,7 @@ export interface PartFilter {
   readonly adapterId?: AdapterId;
   readonly tags?: readonly string[];
   readonly metadata?: MetadataRecord;
+  readonly includeDeleted?: boolean;
 }
 
 /**
@@ -22,6 +23,7 @@ export interface VersionFilter {
   readonly partId?: PartId;
   readonly label?: string;
   readonly metadata?: MetadataRecord;
+  readonly includeDeleted?: boolean;
 }
 
 /**

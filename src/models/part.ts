@@ -1,6 +1,12 @@
 import type { AdapterId, MetadataRecord, PartId, PartVersionId } from './base.js';
 
 /**
+ * Metadata key for soft delete timestamp on parts and versions.
+ * Value type: ISO8601Timestamp
+ */
+export const METADATA_DELETED_AT = 'deletedAt' as const;
+
+/**
  * Descriptor pointing to the physical location of a version artifact.
  */
 export interface VersionLocator {
