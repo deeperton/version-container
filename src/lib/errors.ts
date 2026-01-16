@@ -1,9 +1,4 @@
-import type {
-  ComboId,
-  PartId,
-  PartVersionId,
-  ProjectId,
-} from '../models/base.js';
+import type { ComboId, PartId, PartVersionId, ProjectId } from '../models/base.js';
 
 /**
  * Base error class for all version-container errors.

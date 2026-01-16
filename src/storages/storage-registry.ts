@@ -58,11 +58,7 @@ const storageRegistry = new Map<string, StorageRegistryEntry>();
  * ```
  */
 export function registerBuiltinStorageProviders(): void {
-  registerStorageProvider(
-    BuiltinStorageType.IN_MEMORY,
-    () => new InMemoryStorageProvider(),
-    true
-  );
+  registerStorageProvider(BuiltinStorageType.IN_MEMORY, () => new InMemoryStorageProvider(), true);
   registerStorageProvider(
     BuiltinStorageType.LOCAL_STORAGE,
     () => new LocalStorageStorageProvider(),
@@ -163,9 +159,7 @@ export function createStorageProvider(name: string): StorageProvider {
   const entry = storageRegistry.get(name);
   if (!entry) {
     const available = Array.from(storageRegistry.keys()).join(', ');
-    throw new Error(
-      `Unknown storage provider "${name}". Available providers: ${available}`
-    );
+    throw new Error(`Unknown storage provider "${name}". Available providers: ${available}`);
   }
   return entry.factory();
 }

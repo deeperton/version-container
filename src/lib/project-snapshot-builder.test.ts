@@ -9,10 +9,7 @@ import type {
   ProjectId,
 } from '../models/base.js';
 import type { ProjectInit } from '../models/project.js';
-import {
-  DuplicateIdentifierError,
-  UnknownVersionReferenceError,
-} from './errors.js';
+import { DuplicateIdentifierError, UnknownVersionReferenceError } from './errors.js';
 import { buildProjectSnapshot } from './project-snapshot-builder.js';
 import { TestClock } from './mocks/test-clock.js';
 
@@ -232,9 +229,7 @@ describe('buildProjectSnapshot', () => {
       ],
     };
 
-    expect(() => buildProjectSnapshot(init, { clock })).toThrow(
-      UnknownVersionReferenceError
-    );
+    expect(() => buildProjectSnapshot(init, { clock })).toThrow(UnknownVersionReferenceError);
   });
 
   it('preserves custom schemaVersion in output', () => {

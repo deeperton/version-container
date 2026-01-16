@@ -9,12 +9,7 @@ import {
   UnknownVersionReferenceError,
 } from './errors.js';
 import type { Clock } from './clock.js';
-import {
-  createComboId,
-  createPartId,
-  createPartVersionId,
-  createProjectId,
-} from './ids.js';
+import { createComboId, createPartId, createPartVersionId, createProjectId } from './ids.js';
 
 interface BuildProjectSnapshotOptions {
   readonly clock: Clock;
@@ -46,7 +41,11 @@ export const buildProjectSnapshot = (
   const versionIdMap = new Map<string, PartVersionId>();
   const versionToPart = new Map<PartVersionId, PartId>();
 
-  const ensureUnique = (map: Map<string, string>, id: string | undefined, type: 'part' | 'version'): void => {
+  const ensureUnique = (
+    map: Map<string, string>,
+    id: string | undefined,
+    type: 'part' | 'version'
+  ): void => {
     if (!id) {
       return;
     }

@@ -7,13 +7,7 @@ import {
   createComboId,
   createAdapterId,
 } from './ids.js';
-import type {
-  ProjectId,
-  PartId,
-  PartVersionId,
-  ComboId,
-  AdapterId,
-} from '../models/base.js';
+import type { ProjectId, PartId, PartVersionId, ComboId, AdapterId } from '../models/base.js';
 
 describe('createProjectId', () => {
   it('generates valid UUID format when no argument provided', () => {

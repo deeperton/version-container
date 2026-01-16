@@ -1,15 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { FakeAdapter } from './fake-adapter.js';
-import type {
-  AdapterContext,
-  StorageProvider,
-} from '../../models/adapter.js';
-import type {
-  PartDefinition,
-  PartVersion,
-  ResolvedPartVersion,
-} from '../../models/part.js';
+import type { AdapterContext, StorageProvider } from '../../models/adapter.js';
+import type { PartDefinition, PartVersion, ResolvedPartVersion } from '../../models/part.js';
 import type { AdapterId, ProjectId } from '../../models/base.js';
 
 describe('FakeAdapter', () => {
@@ -24,9 +17,7 @@ describe('FakeAdapter', () => {
     adapterId: 'adapter-test' as AdapterId,
   });
 
-  const createMockVersion = (
-    overrides?: Partial<PartVersion>
-  ): PartVersion => ({
+  const createMockVersion = (overrides?: Partial<PartVersion>): PartVersion => ({
     id: 'v1.0.0' as PartVersion['id'],
     partId: 'test-part' as PartDefinition['id'],
     locator: { uri: 'memory://test@v1.0.0' },

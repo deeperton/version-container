@@ -95,7 +95,7 @@ Strict File Preservation: You are prohibited from deleting uncommitted project f
 
 No Branch Deletion: Never run `git branch -d` or `-D`. All branches must remain in the repository for human review.
 
-3. Safety & Documentation
+3. Safety & Documentation8
 Verification: Run git status before every commit to verify the staging area. Always run it separately, never combine it with other git commands. Check the output than go to the next step.
 
 Commit Messages: Use the imperative mood (e.g., "Fix header alignment"). If the change isn't self-explanatory, add a body to the commit message explaining the "why."

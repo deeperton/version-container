@@ -1,15 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  ProjectEventDispatcher,
-} from './project-events.js';
+import { ProjectEventDispatcher } from './project-events.js';
 import type { ISO8601Timestamp, ProjectId } from '../../models/base.js';
 import type { ProjectSnapshot } from '../../models/project.js';
 import type { PartDefinition } from '../../models/part.js';
 
-const createMockProjectSnapshot = (
-  id: string
-): ProjectSnapshot => ({
+const createMockProjectSnapshot = (id: string): ProjectSnapshot => ({
   schemaVersion: 1,
   project: {
     id: id as ProjectId,

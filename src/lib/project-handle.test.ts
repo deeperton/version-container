@@ -726,14 +726,14 @@ describe('ProjectHandle', () => {
       expect(snapshot.versions).toHaveLength(4);
 
       // All engine versions should be marked as deleted
-      const engineVersions = snapshot.versions.filter((v) => v.partId === 'engine' as PartId);
+      const engineVersions = snapshot.versions.filter((v) => v.partId === ('engine' as PartId));
       expect(engineVersions).toHaveLength(3);
       engineVersions.forEach((v) => {
         expect(v.metadata?.deletedAt).toBeDefined();
       });
 
       // wheels version should not be deleted
-      const wheelsVersion = snapshot.versions.find((v) => v.id === 'w1' as PartVersionId);
+      const wheelsVersion = snapshot.versions.find((v) => v.id === ('w1' as PartVersionId));
       expect(wheelsVersion?.metadata?.deletedAt).toBeUndefined();
 
       // findVersions excludes deleted by default

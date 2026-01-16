@@ -1,10 +1,4 @@
-import type {
-  AdapterId,
-  ComboId,
-  MetadataRecord,
-  PartId,
-  PartVersionId,
-} from './base.js';
+import type { AdapterId, ComboId, MetadataRecord, PartId, PartVersionId } from './base.js';
 
 /**
  * Filter criteria for finding parts.
