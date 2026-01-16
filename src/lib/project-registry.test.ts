@@ -143,9 +143,7 @@ describe('ProjectRegistry', () => {
       clock: new TestClock(initialTime),
     });
 
-    await expect(
-      registry.load('non-existent' as ProjectId)
-    ).rejects.toThrow(/could not be found/);
+    await expect(registry.load('non-existent' as ProjectId)).rejects.toThrow(/could not be found/);
   });
 
   it('close on non-existent project returns without error', async () => {
@@ -154,9 +152,7 @@ describe('ProjectRegistry', () => {
       clock: new TestClock(initialTime),
     });
 
-    await expect(
-      registry.close('non-existent' as ProjectId)
-    ).resolves.toBeUndefined();
+    await expect(registry.close('non-existent' as ProjectId)).resolves.toBeUndefined();
   });
 
   it('close on already closed project is safe', async () => {
@@ -340,8 +336,14 @@ describe('ProjectRegistry', () => {
       const removed = await registry.deletePartVersion(handle.projectId, 'v1' as PartVersionId);
       expect(removed.id).toBe('v1' as PartVersionId);
 
+      // Soft delete: version remains but is marked as deleted
       const snapshot = await handle.getSnapshot();
-      expect(snapshot.versions).toHaveLength(0);
+      expect(snapshot.versions).toHaveLength(1);
+      expect(snapshot.versions[0]?.metadata?.deletedAt).toBeDefined();
+
+      // findVersions excludes deleted by default
+      const foundVersions = await registry.findVersions(handle.projectId);
+      expect(foundVersions).toHaveLength(0);
     });
 
     it('deletePart delegates to handle correctly', async () => {
@@ -364,8 +366,14 @@ describe('ProjectRegistry', () => {
       const removed = await registry.deletePart(handle.projectId, 'engine' as PartId);
       expect(removed.id).toBe('engine' as PartId);
 
+      // Soft delete: part remains but is marked as deleted
       const snapshot = await handle.getSnapshot();
-      expect(snapshot.parts).toHaveLength(0);
+      expect(snapshot.parts).toHaveLength(1);
+      expect(snapshot.parts[0]?.metadata?.deletedAt).toBeDefined();
+
+      // findParts excludes deleted by default
+      const foundParts = await registry.findParts(handle.projectId);
+      expect(foundParts).toHaveLength(0);
     });
   });
 
@@ -444,10 +452,14 @@ describe('ProjectRegistry', () => {
         ],
       });
 
-      const updated = await registry.updateCombo(handle.projectId, 'baseline' as ComboId, (combo) => ({
-        ...combo,
-        name: 'Updated Baseline',
-      }));
+      const updated = await registry.updateCombo(
+        handle.projectId,
+        'baseline' as ComboId,
+        (combo) => ({
+          ...combo,
+          name: 'Updated Baseline',
+        })
+      );
 
       expect(updated.name).toBe('Updated Baseline');
 
@@ -480,7 +492,9 @@ describe('ProjectRegistry', () => {
         ],
       });
 
-      const ids = await registry.findParts(handle.projectId, { adapterId: 'adapter-1' as AdapterId });
+      const ids = await registry.findParts(handle.projectId, {
+        adapterId: 'adapter-1' as AdapterId,
+      });
       expect(ids).toHaveLength(1);
       expect(ids[0]).toBe('engine' as PartId);
     });
