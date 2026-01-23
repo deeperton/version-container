@@ -2,11 +2,13 @@ import type { StorageProvider } from '../models/adapter.js';
 import { InMemoryStorageProvider } from './in-memory/in-memory-storage.js';
 import { LocalStorageStorageProvider } from './local-storage/local-storage-storage.js';
 import { MongoDbStorageProvider } from './mongodb/mongodb-storage.js';
+import { SqliteStorageProvider } from './sqlite/sqlite-storage.js';
 
 // Re-export options types for consumers
 import type { InMemoryStorageOptions } from './in-memory/in-memory-storage.js';
 import type { LocalStorageStorageOptions } from './local-storage/local-storage-storage.js';
 import type { MongoDbStorageOptions } from './mongodb/mongodb-storage.js';
+import type { SqliteStorageOptions } from './sqlite/sqlite-storage.js';
 
 /**
  * Built-in storage type names for runtime selection.
@@ -23,6 +25,7 @@ export const BuiltinStorageType = {
   IN_MEMORY: 'in-memory',
   LOCAL_STORAGE: 'local-storage',
   MONGODB: 'mongodb',
+  SQLITE: 'sqlite',
 } as const;
 
 export type BuiltinStorageTypeEnum = (typeof BuiltinStorageType)[keyof typeof BuiltinStorageType];
@@ -39,7 +42,8 @@ export type StorageFactory = () => StorageProvider;
 export type StorageOptions =
   | InMemoryStorageOptions
   | LocalStorageStorageOptions
-  | MongoDbStorageOptions;
+  | MongoDbStorageOptions
+  | SqliteStorageOptions;
 
 // Internal registry entry type
 type StorageRegistryEntry = {
@@ -71,6 +75,7 @@ export function registerBuiltinStorageProviders(): void {
     true
   );
   registerStorageProvider(BuiltinStorageType.MONGODB, () => new MongoDbStorageProvider(), true);
+  registerStorageProvider(BuiltinStorageType.SQLITE, () => new SqliteStorageProvider(), true);
 }
 
 /**

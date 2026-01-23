@@ -46,11 +46,12 @@ describe('StorageRegistry', () => {
   });
 
   describe('registerBuiltinStorageProviders', () => {
-    it('should register in-memory and local-storage providers', () => {
+    it('should register all built-in providers', () => {
       registerBuiltinStorageProviders();
 
       expect(hasStorageProvider(BuiltinStorageType.IN_MEMORY)).toBe(true);
       expect(hasStorageProvider(BuiltinStorageType.LOCAL_STORAGE)).toBe(true);
+      expect(hasStorageProvider(BuiltinStorageType.SQLITE)).toBe(true);
     });
 
     it('should allow creating built-in providers after registration', () => {
@@ -58,11 +59,14 @@ describe('StorageRegistry', () => {
 
       const inMemory = createStorageProvider(BuiltinStorageType.IN_MEMORY);
       const localStorage = createStorageProvider(BuiltinStorageType.LOCAL_STORAGE);
+      const sqlite = createStorageProvider(BuiltinStorageType.SQLITE);
 
       expect(inMemory).toBeDefined();
       expect(inMemory.id).toBe('in-memory');
       expect(localStorage).toBeDefined();
       expect(localStorage.id).toBe('local-storage');
+      expect(sqlite).toBeDefined();
+      expect(sqlite.id).toBe('sqlite');
     });
   });
 
@@ -92,6 +96,7 @@ describe('StorageRegistry', () => {
       } catch (e) {
         expect((e as Error).message).toContain('in-memory');
         expect((e as Error).message).toContain('local-storage');
+        expect((e as Error).message).toContain('sqlite');
       }
     });
   });
@@ -152,6 +157,7 @@ describe('StorageRegistry', () => {
 
       expect(providers).toContain('in-memory');
       expect(providers).toContain('local-storage');
+      expect(providers).toContain('sqlite');
     });
 
     it('should include custom providers', () => {
@@ -170,6 +176,7 @@ describe('StorageRegistry', () => {
     it('should return true for built-in providers', () => {
       expect(hasStorageProvider('in-memory')).toBe(true);
       expect(hasStorageProvider('local-storage')).toBe(true);
+      expect(hasStorageProvider('sqlite')).toBe(true);
     });
 
     it('should return false for unregistered provider', () => {

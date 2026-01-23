@@ -5,7 +5,7 @@ Type-safe building blocks for managing projects composed of parts, versions, and
 ## Features
 
 - Strict TypeScript typings with branded identifiers for every domain entity.
-- **In-memory and localStorage storage providers** for testing and browser persistence.
+- **In-memory, localStorage, and SQLite storage providers** for testing, browser, and server persistence.
 - **Runtime storage selection** via a registry pattern for pluggable backends.
 - `ProjectRegistry` and `ProjectHandle` abstractions to manage multiple open projects concurrently.
 - Deterministic project snapshot builder with validation for duplicate or unknown parts/versions.
@@ -451,6 +451,100 @@ The localStorage provider handles:
 - Index rebuild if corrupted
 - Quota exceeded errors with descriptive messages
 
+#### SQLite Storage
+
+Server-side storage using SQLite with document-style storage and indexed search columns:
+
+```ts
+import { SqliteStorageProvider, ProjectRegistry } from 'version-container';
+
+const storage = new SqliteStorageProvider({
+  filePath: './projects.db', // Optional: defaults to './version-container.db'
+});
+const registry = new ProjectRegistry({ storage });
+```
+
+The SQLite provider stores full project snapshots as JSON documents while maintaining indexed columns for efficient queries:
+
+```sql
+CREATE TABLE snapshots (
+  project_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  data TEXT NOT NULL  -- Full JSON document
+);
+
+CREATE INDEX idx_snapshots_name ON snapshots(name);
+CREATE INDEX idx_snapshots_updated_at ON snapshots(updated_at DESC);
+```
+
+Features include:
+- **Document storage**: Complete snapshot stored as JSON in `data` column
+- **Indexed search**: Fast lookups by `project_id`, `name`, and `updated_at`
+- **Lazy initialization**: Database connection created on first use
+- **Upsert semantics**: `INSERT ... ON CONFLICT DO UPDATE` for save operations
+- **Optional dependency injection**: Pass an existing `Database` instance for testing
+- **In-memory mode**: Use `filePath: ':memory:'` for testing
+
+You can also use the provider with an external database instance:
+
+```ts
+import Database from 'better-sqlite3';
+import { SqliteStorageProvider } from 'version-container';
+
+const db = new Database('./my-app.db');
+const storage = new SqliteStorageProvider({ db });
+
+// When providing an external database, close() is a no-op
+// You're responsible for closing the database yourself
+await storage.close(); // Does nothing - you must call db.close()
+```
+
+#### MongoDB Storage
+
+Server-side storage using MongoDB for scalable document persistence:
+
+```ts
+import { MongoDbStorageProvider, ProjectRegistry } from 'version-container';
+
+const storage = new MongoDbStorageProvider({
+  connectionString: 'mongodb://localhost:27017',
+  database: 'my-app',      // Optional: defaults to 'version-container'
+  collection: 'projects', // Optional: defaults to 'snapshots'
+});
+const registry = new ProjectRegistry({ storage });
+```
+
+The MongoDB provider stores full project snapshots as documents in a collection. Each snapshot is stored as a single document with the project ID as the query key for efficient lookups.
+
+Features include:
+- **Document storage**: Complete snapshot stored as a BSON document
+- **Indexed queries**: Uses `project.id` field for direct lookups
+- **Lazy initialization**: Connection created on first use
+- **Upsert semantics**: `updateOne` with `upsert: true` for save operations
+- **Optional dependency injection**: Pass an existing `MongoClient` instance for testing
+- **Configurable connection**: Customize connection string, database, and collection names
+- **Connection lifecycle**: `close()` method for cleanup (only closes internally-created clients)
+
+You can also use the provider with an external MongoDB client:
+
+```ts
+import { MongoClient } from 'mongodb';
+import { MongoDbStorageProvider } from 'version-container';
+
+const client = new MongoClient('mongodb://localhost:27017');
+const storage = new MongoDbStorageProvider({
+  client,
+  database: 'my-app'
+});
+
+// When providing an external client, close() is a no-op
+// You're responsible for closing the client yourself
+await storage.close(); // Does nothing - you must call client.close()
+```
+
 #### Runtime Storage Selection
 
 Use the storage registry to select storage providers at runtime via string names:
@@ -463,11 +557,11 @@ import {
   ProjectRegistry,
 } from 'version-container';
 
-// Register built-in providers (in-memory, local-storage)
+// Register built-in providers (in-memory, local-storage, mongodb, sqlite)
 registerBuiltinStorageProviders();
 
 // Select storage type at runtime (e.g., from config, environment, URL param)
-const storageType = process.env.STORAGE_TYPE ?? BuiltinStorageType.LOCAL_STORAGE;
+const storageType = process.env.STORAGE_TYPE ?? BuiltinStorageType.SQLITE;
 const storage = createStorageProvider(storageType);
 
 const registry = new ProjectRegistry({ storage });
@@ -509,6 +603,8 @@ const storage = createStorageProvider('indexed-db');
 |----------|-------|-------|
 | `BuiltinStorageType.IN_MEMORY` | `'in-memory'` | `InMemoryStorageProvider` |
 | `BuiltinStorageType.LOCAL_STORAGE` | `'local-storage'` | `LocalStorageStorageProvider` |
+| `BuiltinStorageType.MONGODB` | `'mongodb'` | `MongoDbStorageProvider` |
+| `BuiltinStorageType.SQLITE` | `'sqlite'` | `SqliteStorageProvider` |
 
 ### Notes on middleware
 
@@ -522,7 +618,7 @@ Key exports available today:
 - Error types – `VersionContainerError` (base class) and 15 specific error classes (`PartNotFoundError`, `VersionNotFoundError`, etc.) for type-safe error handling.
 - Utilities – `createPartId`, `createPartVersionId`, `createComboId`, `createAdapterId`, `cloneValue`, and the `AsyncMutex`.
 - Runtime services – `ProjectRegistry`, `ProjectHandle`, `ProjectEventDispatcher`, `buildProjectSnapshot`, plus a `SystemClock` you can replace with a deterministic clock in tests.
-- Storage providers – `InMemoryStorageProvider`, `LocalStorageStorageProvider` for browser persistence.
+- Storage providers – `InMemoryStorageProvider`, `LocalStorageStorageProvider` for browser persistence, `SqliteStorageProvider` and `MongoDbStorageProvider` for server persistence.
 - Storage registry – `registerBuiltinStorageProviders`, `createStorageProvider`, `registerStorageProvider`, `BuiltinStorageType` for runtime storage selection.
 
 ### Registry Methods
