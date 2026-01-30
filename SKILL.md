@@ -1,0 +1,385 @@
+# Version Container Agent Skill
+
+A skill for AI coding agents to work with the `version-container` library - a TypeScript library for managing projects composed of parts, versions, and version combos with pluggable storage backends.
+
+## Overview
+
+**Version Container** provides type-safe building blocks for:
+- Managing projects with parts, versions, and version combos
+- Pluggable storage providers (in-memory, localStorage, SQLite, MongoDB)
+- Deterministic snapshots with validation
+- Lifecycle management with event emission
+- Runtime storage selection via registry pattern
+
+## Core Concepts
+
+### Project Structure
+
+```
+Project
+├── Parts (components/libraries)
+│   └── Versions (specific iterations)
+├── Combos (named sets of bound versions)
+└── Locks (deterministic version snapshots)
+```
+
+### Key Types
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| `ProjectId` | Branded project identifier | `createProjectId('my-app')` |
+| `PartId` | Branded part identifier | `createPartId('frontend')` |
+| `PartVersionId` | Branded version identifier | `createPartVersionId('v1.0.0')` |
+| `ComboId` | Branded combo identifier | `createComboId('baseline')` |
+| `ProjectSnapshot` | Complete project state | Full project with parts/versions/combos |
+| `ProjectSummary` | Lightweight project info | id, name, description, updatedAt |
+
+## Installation
+
+```bash
+npm install version-container
+```
+
+## Quick Start Pattern
+
+```typescript
+import {
+  ProjectRegistry,
+  InMemoryStorageProvider,
+  createPartId,
+  createPartVersionId,
+  createComboId,
+} from 'version-container';
+
+// 1. Set up storage
+const storage = new InMemoryStorageProvider();
+const registry = new ProjectRegistry({ storage, adapters: [] });
+
+// 2. Create/open a project
+const handle = await registry.open({
+  name: 'My Application',
+  description: 'Project description',
+});
+
+// 3. Add a part
+const partId = createPartId('ui-kit');
+await registry.addPart(handle.projectId, {
+  id: partId,
+  name: 'UI Kit',
+  adapterId: createAdapterId('npm'),
+});
+
+// 4. Add versions to the part
+await registry.addPartVersion(handle.projectId, partId, {
+  id: createPartVersionId('1.0.0'),
+  label: '1.0.0',
+  locator: { uri: 'npm://ui-kit@1.0.0' },
+});
+
+// 5. Create a combo
+await registry.addCombo(handle.projectId, {
+  id: createComboId('baseline'),
+  name: 'Baseline',
+  bindings: [
+    { partId, versionId: createPartVersionId('1.0.0') }
+  ],
+});
+```
+
+## Storage Provider Selection
+
+### By Environment
+
+```typescript
+import {
+  InMemoryStorageProvider,      // Testing, ephemeral data
+  LocalStorageStorageProvider,  // Browser persistence
+  SqliteStorageProvider,       // Node.js file persistence
+  MongoDbStorageProvider,      // Scalable server persistence
+} from 'version-container';
+
+// Choose based on environment
+const storage = process.env.NODE_ENV === 'test'
+  ? new InMemoryStorageProvider()
+  : typeof window !== 'undefined'
+    ? new LocalStorageStorageProvider()
+    : new SqliteStorageProvider({ filePath: './projects.db' });
+```
+
+### Runtime Selection (Registry Pattern)
+
+```typescript
+import {
+  registerBuiltinStorageProviders,
+  createStorageProvider,
+  BuiltinStorageType,
+} from 'version-container';
+
+// Register all built-in providers
+registerBuiltinStorageProviders();
+
+// Select from config/env
+const storageType = process.env.STORAGE ?? 'sqlite';
+const storage = createStorageProvider(storageType);
+```
+
+### SQLite Configuration
+
+```typescript
+import { SqliteStorageProvider } from 'version-container';
+
+// File-based persistence
+const storage = new SqliteStorageProvider({
+  filePath: './data/projects.db',
+});
+
+// In-memory for testing
+const testStorage = new SqliteStorageProvider({
+  filePath: ':memory:',
+});
+
+// With external database instance
+import Database from 'better-sqlite3';
+const db = new Database('./custom.db');
+const storage = new SqliteStorageProvider({ db });
+```
+
+### MongoDB Configuration
+
+```typescript
+import { MongoDbStorageProvider } from 'version-container';
+
+const storage = new MongoDbStorageProvider({
+  connectionString: 'mongodb://localhost:27017',
+  database: 'my-app',
+  collection: 'projects',
+});
+```
+
+## Common Workflows
+
+### Creating a New Project
+
+```typescript
+const handle = await registry.open({
+  name: 'Rocket Guidance System',
+  description: 'Avionics control system',
+  metadata: { owner: 'engineering-team' },
+});
+```
+
+### Adding Parts and Versions
+
+```typescript
+const enginePartId = createPartId('engine');
+const v1Id = createPartVersionId('v1.0.0');
+const v2Id = createPartVersionId('v1.1.0');
+
+// Add part
+await registry.addPart(handle.projectId, {
+  id: enginePartId,
+  name: 'Engine Controller',
+  adapterId: createAdapterId('git'),
+  tags: ['critical', 'hardware'],
+});
+
+// Add versions
+await registry.addPartVersion(handle.projectId, enginePartId, {
+  id: v1Id,
+  label: '1.0.0',
+  locator: { uri: 'git://engine.git@v1.0.0' },
+});
+
+await registry.addPartVersion(handle.projectId, enginePartId, {
+  id: v2Id,
+  label: '1.1.0',
+  locator: { uri: 'git://engine.git@v1.1.0' },
+});
+```
+
+### Creating and Managing Combos
+
+```typescript
+// Create a combo
+const baselineId = createComboId('baseline');
+await registry.addCombo(handle.projectId, {
+  id: baselineId,
+  name: 'Baseline Configuration',
+  description: 'Initial stable configuration',
+  bindings: [
+    { partId: enginePartId, versionId: v1Id },
+  ],
+});
+
+// Update combo bindings
+await registry.updateCombo(handle.projectId, baselineId, (combo) => ({
+  ...combo,
+  name: 'Updated Baseline',
+  bindings: [
+    { partId: enginePartId, versionId: v2Id },  // Use newer version
+  ],
+}));
+
+// Delete combo
+await registry.deleteCombo(handle.projectId, baselineId);
+```
+
+### Querying and Filtering
+
+```typescript
+// Find parts by adapter
+const gitParts = await registry.findParts(handle.projectId, {
+  adapterId: createAdapterId('git'),
+});
+
+// Find parts by tags
+const criticalParts = await registry.findParts(handle.projectId, {
+  tags: ['critical'],
+});
+
+// Find versions for a specific part
+const engineVersions = await registry.findVersions(handle.projectId, {
+  partId: enginePartId,
+});
+
+// Find combos using a specific version
+const combosUsingV1 = await registry.findCombos(handle.projectId, {
+  versionId: v1Id,
+});
+
+// Get full entity by ID
+const part = await registry.getPartById(handle.projectId, enginePartId);
+const summary = await registry.getPartSummary(handle.projectId, enginePartId);
+```
+
+### Deleting Items (Soft Delete)
+
+```typescript
+// Soft delete a version (marks as deleted, keeps in snapshot)
+await registry.deletePartVersion(handle.projectId, v1Id);
+
+// Soft delete a part (cascades to all versions)
+await registry.deletePart(handle.projectId, enginePartId);
+
+// Query including deleted items
+const allParts = await registry.findParts(handle.projectId, {
+  includeDeleted: true,
+});
+
+// Permanently remove soft-deleted items
+const removed = await registry.cleanDeletedVersions(handle.projectId);
+```
+
+### Managing Project Lifecycle
+
+```typescript
+// Load existing project
+const handle = await registry.load(projectId);
+
+// List open projects
+const openProjects = registry.listOpenProjects();
+
+// Close project (saves if dirty)
+await registry.close(handle.projectId);
+
+// Get current snapshot
+const snapshot = await handle.getSnapshot();
+
+// Update snapshot directly
+await handle.update((s) => ({
+  ...s,
+  project: { ...s.project, metadata: { archived: true } },
+}));
+
+await handle.save();
+```
+
+## Event Subscription
+
+```typescript
+const events = registry.getEventDispatcher();
+
+// Subscribe to events
+const unsubscribe = events.subscribe('version:added', ({ projectId, version }) => {
+  console.log(`Version ${version.id} added to project ${projectId}`);
+});
+
+// Unsubscribe when done
+unsubscribe();
+```
+
+Available events: `project:created`, `project:loaded`, `project:updated`, `project:closed`, `part:added`, `part:updated`, `part:removed`, `version:added`, `version:updated`, `version:removed`, `combo:added`, `combo:updated`, `combo:removed`, `partsOrder:updated`.
+
+## Error Handling
+
+```typescript
+import {
+  PartNotFoundError,
+  VersionNotFoundError,
+  ComboNotFoundError,
+  VersionContainerError,
+} from 'version-container';
+
+try {
+  await registry.deletePartVersion(projectId, versionId);
+} catch (error) {
+  if (error instanceof PartNotFoundError) {
+    console.log('Part not found:', error.partId);
+  } else if (error instanceof VersionContainerError) {
+    console.log('Container error:', error.code, error.entityId);
+  } else {
+    throw error;
+  }
+}
+```
+
+## Best Practices
+
+1. **Always use branded ID creators** - Never use string literals for IDs
+2. **Prefer registry methods** over direct `handle.update()` for structured changes
+3. **Use soft delete** for data that might need recovery
+4. **Subscribe to events** for reactive side effects
+5. **Close projects** when done to release resources
+6. **Use appropriate storage** for your environment
+7. **Handle `VersionContainerError`** for type-safe error handling
+
+## File Structure Reference
+
+```
+src/
+├── models/          # Domain interfaces and types
+├── lib/             # Core services (Registry, Handle, Events)
+├── storages/        # Storage provider implementations
+│   ├── in-memory/
+│   ├── local-storage/
+│   ├── mongodb/
+│   └── sqlite/
+└── index.ts         # Public API exports
+```
+
+## Testing Patterns
+
+```typescript
+import { InMemoryStorageProvider, SystemClock } from 'version-container';
+
+// Use in-memory storage for tests
+const testStorage = new InMemoryStorageProvider();
+
+// Use deterministic clock for predictable timestamps
+const clock = new TestClock('2024-01-01T00:00:00.000Z');
+
+const registry = new ProjectRegistry({
+  storage: testStorage,
+  adapters: [],
+  clock,
+});
+```
+
+## Storage Comparison
+
+| Provider | Environment | Use Case | Persistence |
+|----------|-------------|----------|-------------|
+| `InMemoryStorageProvider` | Any | Testing, caching | No |
+| `LocalStorageStorageProvider` | Browser | Web apps | Yes (browser) |
+| `SqliteStorageProvider` | Node.js | Desktop/server apps | Yes (file) |
+| `MongoDbStorageProvider` | Node.js | Distributed systems | Yes (remote) |
