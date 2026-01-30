@@ -72,6 +72,7 @@ export const buildProjectSnapshot = (
       adapterId: partInit.adapterId,
       tags: partInit.tags,
       metadata: partInit.metadata,
+      owner: partInit.owner,
     };
     parts.push(definition);
 
@@ -87,6 +88,7 @@ export const buildProjectSnapshot = (
         label: versionInit.label,
         locator: versionInit.locator,
         metadata: versionInit.metadata,
+        owner: versionInit.owner,
       };
       versions.push(version);
     }
@@ -128,6 +130,7 @@ export const buildProjectSnapshot = (
       createdAt: timestamp,
       updatedAt: timestamp,
       metadata: comboInit.metadata,
+      owner: comboInit.owner,
     };
     combos.push(definition);
   }
@@ -141,6 +144,7 @@ export const buildProjectSnapshot = (
       name: init.name,
       description: init.description,
       metadata: init.metadata,
+      owner: init.owner,
       createdAt: timestamp,
       updatedAt: timestamp,
     },

@@ -146,6 +146,11 @@ export class ProjectHandle {
             }
           }
         }
+        if (filter?.ownerUserId !== undefined) {
+          if (!part.owner || part.owner.userId !== filter.ownerUserId) {
+            return false;
+          }
+        }
         return true;
       })
       .map((part) => part.id);
@@ -183,6 +188,11 @@ export class ProjectHandle {
             }
           }
         }
+        if (filter?.ownerUserId !== undefined) {
+          if (!version.owner || version.owner.userId !== filter.ownerUserId) {
+            return false;
+          }
+        }
         return true;
       })
       .map((version) => version.id);
@@ -218,6 +228,11 @@ export class ProjectHandle {
             if (combo.metadata[key] !== value) {
               return false;
             }
+          }
+        }
+        if (filter?.ownerUserId !== undefined) {
+          if (!combo.owner || combo.owner.userId !== filter.ownerUserId) {
+            return false;
           }
         }
         return true;
@@ -290,7 +305,7 @@ export class ProjectHandle {
     if (!part) {
       return undefined;
     }
-    return { id: part.id, name: part.name, description: part.description };
+    return { id: part.id, name: part.name, description: part.description, owner: part.owner };
   }
 
   /**
@@ -305,7 +320,7 @@ export class ProjectHandle {
     if (!version) {
       return undefined;
     }
-    return { id: version.id, label: version.label };
+    return { id: version.id, label: version.label, owner: version.owner };
   }
 
   /**
@@ -320,7 +335,7 @@ export class ProjectHandle {
     if (!combo) {
       return undefined;
     }
-    return { id: combo.id, name: combo.name, description: combo.description };
+    return { id: combo.id, name: combo.name, description: combo.description, owner: combo.owner };
   }
 
   /**
@@ -464,6 +479,7 @@ export class ProjectHandle {
         adapterId: partInit.adapterId,
         tags: partInit.tags,
         metadata: partInit.metadata,
+        owner: partInit.owner,
       };
 
       const existingVersionIds = new Set(snapshot.versions.map((version) => version.id));
@@ -588,6 +604,7 @@ export class ProjectHandle {
         label: versionInit.label,
         locator: versionInit.locator,
         metadata: versionInit.metadata,
+        owner: versionInit.owner,
       };
 
       const nextSnapshot: ProjectSnapshot = {
@@ -892,6 +909,7 @@ export class ProjectHandle {
         createdAt: timestamp,
         updatedAt: timestamp,
         metadata: comboInit.metadata,
+        owner: comboInit.owner,
       };
 
       const nextSnapshot: ProjectSnapshot = {

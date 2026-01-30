@@ -31,8 +31,11 @@ Project
 | `PartId` | Branded part identifier | `createPartId('frontend')` |
 | `PartVersionId` | Branded version identifier | `createPartVersionId('v1.0.0')` |
 | `ComboId` | Branded combo identifier | `createComboId('baseline')` |
+| `UserId` | Branded user identifier | `createUserId('user-123')` |
+| `UserGroupId` | Branded user group identifier | `createUserGroupId('team-alpha')` |
+| `OwnerInfo` | Owner metadata | `{ userName, userId, userGroupId? }` |
 | `ProjectSnapshot` | Complete project state | Full project with parts/versions/combos |
-| `ProjectSummary` | Lightweight project info | id, name, description, updatedAt |
+| `ProjectSummary` | Lightweight project info | id, name, description, owner, updatedAt |
 
 ## Installation
 
@@ -49,6 +52,8 @@ import {
   createPartId,
   createPartVersionId,
   createComboId,
+  createUserId,
+  createUserGroupId,
 } from 'version-container';
 
 // 1. Set up storage
@@ -168,6 +173,99 @@ const handle = await registry.open({
 });
 ```
 
+### Owner Tracking
+
+All domain entities (Projects, Parts, Versions, Combos) support optional owner tracking for audit trails and access control.
+
+```typescript
+import type { OwnerInfo } from 'version-container';
+
+// Define owner information
+const owner: OwnerInfo = {
+  userName: 'Jane Smith',
+  userId: createUserId('user-123'),
+  userGroupId: createUserGroupId('engineering-team'), // optional
+};
+
+// Create project with owner
+const handle = await registry.open({
+  name: 'Rocket Guidance System',
+  owner,
+});
+
+// Create part with owner
+await registry.addPart(handle.projectId, {
+  id: createPartId('engine'),
+  name: 'Engine Controller',
+  adapterId: createAdapterId('git'),
+  owner: {
+    userName: 'John Doe',
+    userId: createUserId('user-456'),
+  },
+});
+
+// Create version with owner
+await registry.addPartVersion(handle.projectId, partId, {
+  id: createPartVersionId('v1.0.0'),
+  label: '1.0.0',
+  locator: { uri: 'git://engine.git@v1.0.0' },
+  owner: {
+    userName: 'John Doe',
+    userId: createUserId('user-456'),
+  },
+});
+
+// Create combo with owner
+await registry.addCombo(handle.projectId, {
+  name: 'Baseline',
+  bindings: [{ partId, versionId }],
+  owner: {
+    userName: 'Jane Smith',
+    userId: createUserId('user-123'),
+  },
+});
+```
+
+#### Query by Owner
+
+```typescript
+// Find all parts owned by a specific user
+const partsByUser = await registry.findParts(projectId, {
+  ownerUserId: createUserId('user-456'),
+});
+
+// Find all versions owned by a specific user
+const versionsByUser = await registry.findVersions(projectId, {
+  ownerUserId: createUserId('user-456'),
+});
+
+// Find all combos owned by a specific user
+const combosByUser = await registry.findCombos(projectId, {
+  ownerUserId: createUserId('user-456'),
+});
+```
+
+#### Update Owner (Mutable)
+
+```typescript
+// Transfer ownership
+await registry.updatePart(projectId, partId, (part) => ({
+  ...part,
+  owner: {
+    userName: 'New Owner',
+    userId: createUserId('user-789'),
+  },
+}));
+```
+
+#### Owner in Summaries
+
+```typescript
+// Lightweight summaries also include owner info
+const summary = await registry.getPartSummary(projectId, partId);
+console.log(summary?.owner?.userName); // "John Doe"
+```
+
 ### Adding Parts and Versions
 
 ```typescript
@@ -237,14 +335,29 @@ const criticalParts = await registry.findParts(handle.projectId, {
   tags: ['critical'],
 });
 
+// Find parts by owner
+const partsByUser = await registry.findParts(handle.projectId, {
+  ownerUserId: createUserId('user-456'),
+});
+
 // Find versions for a specific part
 const engineVersions = await registry.findVersions(handle.projectId, {
   partId: enginePartId,
 });
 
+// Find versions by owner
+const versionsByUser = await registry.findVersions(handle.projectId, {
+  ownerUserId: createUserId('user-456'),
+});
+
 // Find combos using a specific version
 const combosUsingV1 = await registry.findCombos(handle.projectId, {
   versionId: v1Id,
+});
+
+// Find combos by owner
+const combosByUser = await registry.findCombos(handle.projectId, {
+  ownerUserId: createUserId('user-456'),
 });
 
 // Get full entity by ID
@@ -336,12 +449,13 @@ try {
 ## Best Practices
 
 1. **Always use branded ID creators** - Never use string literals for IDs
-2. **Prefer registry methods** over direct `handle.update()` for structured changes
-3. **Use soft delete** for data that might need recovery
-4. **Subscribe to events** for reactive side effects
-5. **Close projects** when done to release resources
-6. **Use appropriate storage** for your environment
-7. **Handle `VersionContainerError`** for type-safe error handling
+2. **Use owner tracking** for audit trails and access control on all entities
+3. **Prefer registry methods** over direct `handle.update()` for structured changes
+4. **Use soft delete** for data that might need recovery
+5. **Subscribe to events** for reactive side effects
+6. **Close projects** when done to release resources
+7. **Use appropriate storage** for your environment
+8. **Handle `VersionContainerError`** for type-safe error handling
 
 ## File Structure Reference
 

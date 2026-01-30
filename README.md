@@ -606,6 +606,107 @@ const storage = createStorageProvider('indexed-db');
 | `BuiltinStorageType.MONGODB` | `'mongodb'` | `MongoDbStorageProvider` |
 | `BuiltinStorageType.SQLITE` | `'sqlite'` | `SqliteStorageProvider` |
 
+### 14. Track ownership for projects, parts, versions, and combos
+
+The library supports tracking ownership information for all domain entities. This is useful for audit trails, access control, and reporting.
+
+```ts
+import {
+  createUserId,
+  createUserGroupId,
+  type OwnerInfo,
+} from 'version-container';
+
+// Create a project with owner information
+const owner: OwnerInfo = {
+  userName: 'Jane Smith',
+  userId: createUserId('user-123'),
+  userGroupId: createUserGroupId('engineering-team'), // optional
+};
+
+const handle = await registry.open({
+  name: 'Rocket Guidance System',
+  owner,
+});
+
+// Create a part with owner
+await registry.addPart(handle.projectId, {
+  id: createPartId('engine'),
+  name: 'Engine Controller',
+  adapterId,
+  owner: {
+    userName: 'John Doe',
+    userId: createUserId('user-456'),
+  },
+});
+
+// Create a version with owner
+await registry.addPartVersion(handle.projectId, enginePartId, {
+  id: createPartVersionId('engine-v1'),
+  label: '1.0.0',
+  locator: { uri: 'memory://engine@1.0.0' },
+  owner: {
+    userName: 'John Doe',
+    userId: createUserId('user-456'),
+  },
+});
+
+// Create a combo with owner
+await registry.addCombo(handle.projectId, {
+  name: 'Production',
+  bindings: [
+    { partId: enginePartId, versionId: engineV1Id },
+  ],
+  owner: {
+    userName: 'Jane Smith',
+    userId: createUserId('user-123'),
+  },
+});
+```
+
+Owner information is **optional** and **mutable**. You can update ownership at any time:
+
+```ts
+// Transfer ownership of a part
+await registry.updatePart(projectId, partId, (part) => ({
+  ...part,
+  owner: {
+    userName: 'New Owner',
+    userId: createUserId('user-789'),
+  },
+}));
+```
+
+#### Query by owner
+
+Filter entities by user ID to find all items owned by a specific user:
+
+```ts
+// Find all parts owned by a specific user
+const partsByUser = await registry.findParts(projectId, {
+  ownerUserId: createUserId('user-456'),
+});
+
+// Find all versions owned by a specific user
+const versionsByUser = await registry.findVersions(projectId, {
+  ownerUserId: createUserId('user-456'),
+});
+
+// Find all combos owned by a specific user
+const combosByUser = await registry.findCombos(projectId, {
+  ownerUserId: createUserId('user-456'),
+});
+```
+
+#### Owner in summary types
+
+Lightweight summary types also include owner information for quick display:
+
+```ts
+const summary = await registry.getPartSummary(projectId, partId);
+console.log(summary?.owner?.userName); // "John Doe"
+```
+
 ### Notes on middleware
 
 Middleware hooks are not yet implemented, but TODO markers in the code indicate where lifecycle events (`project:create`, `project:load`, `project:save`, etc.) will be exposed. These placeholders make it straightforward to add logging, validation, or policy enforcement layers in future iterations.
@@ -614,9 +715,9 @@ Middleware hooks are not yet implemented, but TODO markers in the code indicate 
 
 Key exports available today:
 
-- Domain models – `ProjectInit`, `PartDefinition`, `VersionCombo`, `VersionComboInit`, filter types (`PartFilter`, `VersionFilter`, `ComboFilter`), summary types (`PartSummary`, `VersionSummary`, `ComboSummary`), and related branded ID types (see `src/models`).
+- Domain models – `ProjectInit`, `PartDefinition`, `VersionCombo`, `VersionComboInit`, filter types (`PartFilter`, `VersionFilter`, `ComboFilter`), summary types (`PartSummary`, `VersionSummary`, `ComboSummary`), owner types (`OwnerInfo`, `UserId`, `UserGroupId`), and related branded ID types (see `src/models`).
 - Error types – `VersionContainerError` (base class) and 15 specific error classes (`PartNotFoundError`, `VersionNotFoundError`, etc.) for type-safe error handling.
-- Utilities – `createPartId`, `createPartVersionId`, `createComboId`, `createAdapterId`, `cloneValue`, and the `AsyncMutex`.
+- Utilities – `createPartId`, `createPartVersionId`, `createComboId`, `createAdapterId`, `createUserId`, `createUserGroupId`, `cloneValue`, and the `AsyncMutex`.
 - Runtime services – `ProjectRegistry`, `ProjectHandle`, `ProjectEventDispatcher`, `buildProjectSnapshot`, plus a `SystemClock` you can replace with a deterministic clock in tests.
 - Storage providers – `InMemoryStorageProvider`, `LocalStorageStorageProvider` for browser persistence, `SqliteStorageProvider` and `MongoDbStorageProvider` for server persistence.
 - Storage registry – `registerBuiltinStorageProviders`, `createStorageProvider`, `registerStorageProvider`, `BuiltinStorageType` for runtime storage selection.

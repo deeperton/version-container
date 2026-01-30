@@ -1,4 +1,4 @@
-import type { AdapterId, ComboId, PartId, PartVersionId, ProjectId } from '../models/base.js';
+import type { AdapterId, ComboId, PartId, PartVersionId, ProjectId, UserId, UserGroupId } from '../models/base.js';
 
 /**
  * Helper methods for creating branded identifiers in a consistent way.
@@ -63,3 +63,16 @@ export const createComboId = (value?: string): ComboId => createId<ComboId>(valu
  */
 export const createAdapterId = (value?: string): AdapterId =>
   createId<AdapterId>(value, randomUUID);
+
+/**
+ * Generates or brands a `UserId`.
+ * Used for tracking the owner of projects, parts, versions, and combos.
+ */
+export const createUserId = (value?: string): UserId => createId<UserId>(value, randomUUID);
+
+/**
+ * Generates or brands a `UserGroupId`.
+ * Used for tracking the group membership of entity owners.
+ */
+export const createUserGroupId = (value?: string): UserGroupId =>
+  createId<UserGroupId>(value, randomUUID);

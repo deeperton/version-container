@@ -6,8 +6,10 @@ import {
   createPartVersionId,
   createComboId,
   createAdapterId,
+  createUserId,
+  createUserGroupId,
 } from './ids.js';
-import type { ProjectId, PartId, PartVersionId, ComboId, AdapterId } from '../models/base.js';
+import type { ProjectId, PartId, PartVersionId, ComboId, AdapterId, UserId, UserGroupId } from '../models/base.js';
 
 describe('createProjectId', () => {
   it('generates valid UUID format when no argument provided', () => {
@@ -160,6 +162,68 @@ describe('createAdapterId', () => {
   it('returns AdapterId type', () => {
     const id = createAdapterId();
     const typeCheck: AdapterId = id;
+    expect(typeCheck).toBe(id);
+  });
+});
+
+describe('createUserId', () => {
+  it('generates valid UUID format when no argument provided', () => {
+    const id = createUserId();
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    expect(id).toMatch(uuidRegex);
+  });
+
+  it('returns branded custom string when provided', () => {
+    const customId = 'user-123' as UserId;
+    const id = createUserId(customId);
+    expect(id).toBe(customId);
+  });
+
+  it('brands empty string', () => {
+    const id = createUserId('');
+    expect(id).toBe('');
+  });
+
+  it('generates different values on multiple calls without argument', () => {
+    const id1 = createUserId();
+    const id2 = createUserId();
+    expect(id1).not.toBe(id2);
+  });
+
+  it('returns UserId type', () => {
+    const id = createUserId();
+    const typeCheck: UserId = id;
+    expect(typeCheck).toBe(id);
+  });
+});
+
+describe('createUserGroupId', () => {
+  it('generates valid UUID format when no argument provided', () => {
+    const id = createUserGroupId();
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    expect(id).toMatch(uuidRegex);
+  });
+
+  it('returns branded custom string when provided', () => {
+    const customId = 'team-avionics' as UserGroupId;
+    const id = createUserGroupId(customId);
+    expect(id).toBe(customId);
+  });
+
+  it('brands empty string', () => {
+    const id = createUserGroupId('');
+    expect(id).toBe('');
+  });
+
+  it('generates different values on multiple calls without argument', () => {
+    const id1 = createUserGroupId();
+    const id2 = createUserGroupId();
+    expect(id1).not.toBe(id2);
+  });
+
+  it('returns UserGroupId type', () => {
+    const id = createUserGroupId();
+    const typeCheck: UserGroupId = id;
     expect(typeCheck).toBe(id);
   });
 });

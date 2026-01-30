@@ -1,4 +1,4 @@
-import type { ISO8601Timestamp, MetadataRecord, ProjectId } from './base.js';
+import type { ISO8601Timestamp, MetadataRecord, OwnerInfo, ProjectId } from './base.js';
 import type { PartDefinition, PartInit, PartVersion } from './part.js';
 import type { Lockfile, VersionCombo, VersionComboInit } from './combo.js';
 
@@ -16,6 +16,7 @@ export interface ProjectInit {
   readonly name: string;
   readonly description?: string;
   readonly metadata?: MetadataRecord;
+  readonly owner?: OwnerInfo;
   readonly parts?: readonly PartInit[];
   readonly combos?: readonly VersionComboInit[];
 }
@@ -25,6 +26,7 @@ export interface ProjectInit {
  */
 export interface ProjectMetadata extends Omit<ProjectInit, 'id' | 'parts' | 'combos'> {
   readonly id: ProjectId;
+  readonly owner?: OwnerInfo;
   readonly createdAt: ISO8601Timestamp;
   readonly updatedAt: ISO8601Timestamp;
 }
@@ -54,5 +56,6 @@ export interface ProjectSummary {
   readonly id: ProjectId;
   readonly name: string;
   readonly description?: string;
+  readonly owner?: OwnerInfo;
   readonly updatedAt: ISO8601Timestamp;
 }

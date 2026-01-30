@@ -1,4 +1,4 @@
-import type { AdapterId, ComboId, MetadataRecord, PartId, PartVersionId } from './base.js';
+import type { AdapterId, ComboId, MetadataRecord, OwnerInfo, PartId, PartVersionId, UserId } from './base.js';
 
 /**
  * Filter criteria for finding parts.
@@ -7,6 +7,7 @@ export interface PartFilter {
   readonly adapterId?: AdapterId;
   readonly tags?: readonly string[];
   readonly metadata?: MetadataRecord;
+  readonly ownerUserId?: UserId;
   readonly includeDeleted?: boolean;
 }
 
@@ -17,6 +18,7 @@ export interface VersionFilter {
   readonly partId?: PartId;
   readonly label?: string;
   readonly metadata?: MetadataRecord;
+  readonly ownerUserId?: UserId;
   readonly includeDeleted?: boolean;
 }
 
@@ -27,6 +29,7 @@ export interface ComboFilter {
   readonly partId?: PartId;
   readonly versionId?: PartVersionId;
   readonly metadata?: MetadataRecord;
+  readonly ownerUserId?: UserId;
 }
 
 /**
@@ -36,6 +39,7 @@ export interface PartSummary {
   readonly id: PartId;
   readonly name: string;
   readonly description?: string;
+  readonly owner?: OwnerInfo;
 }
 
 /**
@@ -44,6 +48,7 @@ export interface PartSummary {
 export interface VersionSummary {
   readonly id: PartVersionId;
   readonly label?: string;
+  readonly owner?: OwnerInfo;
 }
 
 /**
@@ -53,4 +58,5 @@ export interface ComboSummary {
   readonly id: ComboId;
   readonly name: string;
   readonly description?: string;
+  readonly owner?: OwnerInfo;
 }
