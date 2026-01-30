@@ -1,6 +1,7 @@
-# Version Container Agent Skill
-
-A skill for AI coding agents to work with the `version-container` library - a TypeScript library for managing projects composed of parts, versions, and version combos with pluggable storage backends.
+---
+name: Using version-container library
+description: dealing with a typescript library for managing projects composed of parts, versions, and version combos with pluggable storage backends
+---
 
 ## Overview
 

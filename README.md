@@ -12,11 +12,6 @@ Type-safe building blocks for managing projects composed of parts, versions, and
 - Utility helpers for ID generation, cloning, and concurrency control.
 - Ready-to-extend hooks for future middleware integrations (commented TODOs denote insertion points).
 
-## Installation
-
-```bash
-npm install
-```
 
 The package ships both ESM and CommonJS bundles plus declaration files so it can be consumed from modern build tools or Node runtimes.
 
