@@ -257,7 +257,8 @@ describe('List Projects API', () => {
 
       await registry.open({ name: 'Test Project', owner }, owner.userId);
 
-      const result = await registry.listProjects();
+      // Query with owner filter to see projects with owner
+      const result = await registry.listProjects({ ownerUserId: owner.userId });
 
       expect(result.projects[0].owner).toEqual(owner);
     });
@@ -336,6 +337,104 @@ describe('List Projects API', () => {
 
       // Project 1 should be first (most recently updated)
       expect(result.projects[0].name).toBe('Project 1');
+    });
+  });
+
+  describe('Security and access control', () => {
+    it('should only return projects without owner when no filter is provided', async () => {
+      const storage = new InMemoryStorageProvider();
+      const registry = new ProjectRegistry({ storage });
+
+      const user1 = createUserId('user-1');
+
+      // Create projects with and without owners
+      await registry.open({ name: 'No Owner Project' });
+      await registry.open({ name: 'Owned Project', owner: { userName: 'User 1', userId: user1 } }, user1);
+
+      // Query without filters should only return projects without owner
+      const result = await registry.listProjects();
+      expect(result.projects).toHaveLength(1);
+      expect(result.projects[0].name).toBe('No Owner Project');
+    });
+
+    it('should only return projects owned by specific user when ownerUserId is provided', async () => {
+      const storage = new InMemoryStorageProvider();
+      const registry = new ProjectRegistry({ storage });
+
+      const user1 = createUserId('user-1');
+      const user2 = createUserId('user-2');
+
+      // Create projects with different owners
+      await registry.open({ name: 'No Owner Project' });
+      await registry.open({ name: 'User 1 Project', owner: { userName: 'User 1', userId: user1 } }, user1);
+      await registry.open({ name: 'User 2 Project', owner: { userName: 'User 2', userId: user2 } }, user2);
+
+      // Query with ownerUserId should only return that user's projects
+      const result1 = await registry.listProjects({ ownerUserId: user1 });
+      expect(result1.projects).toHaveLength(1);
+      expect(result1.projects[0].name).toBe('User 1 Project');
+    });
+
+    it('should only return projects owned by specific group when ownerGroupId is provided', async () => {
+      const storage = new InMemoryStorageProvider();
+      const registry = new ProjectRegistry({ storage });
+
+      const group1 = createUserGroupId('engineering');
+      const group2 = createUserGroupId('sales');
+      const user1 = createUserId('user-1');
+      const user2 = createUserId('user-2');
+
+      // Create projects with different group owners
+      await registry.open({ name: 'No Owner Project' });
+      await registry.open(
+        { name: 'Engineering Project', owner: { userName: 'User 1', userId: user1, userGroupId: group1 } },
+        user1
+      );
+      await registry.open(
+        { name: 'Sales Project', owner: { userName: 'User 2', userId: user2, userGroupId: group2 } },
+        user2
+      );
+
+      // Query with ownerGroupId should only return that group's projects
+      const result = await registry.listProjects({ ownerGroupId: group1 });
+      expect(result.projects).toHaveLength(1);
+      expect(result.projects[0].name).toBe('Engineering Project');
+    });
+
+    it('should return all projects when includeAll is true', async () => {
+      const storage = new InMemoryStorageProvider();
+      const registry = new ProjectRegistry({ storage });
+
+      const user1 = createUserId('user-1');
+      const user2 = createUserId('user-2');
+
+      // Create projects with and without owners
+      await registry.open({ name: 'No Owner Project' });
+      await registry.open({ name: 'User 1 Project', owner: { userName: 'User 1', userId: user1 } }, user1);
+      await registry.open({ name: 'User 2 Project', owner: { userName: 'User 2', userId: user2 } }, user2);
+
+      // Query with includeAll: true should return all projects
+      const result = await registry.listProjects({ includeAll: true });
+      expect(result.projects).toHaveLength(3);
+      const projectNames = result.projects.map((p) => p.name);
+      expect(projectNames).toContain('User 2 Project');
+      expect(projectNames).toContain('User 1 Project');
+      expect(projectNames).toContain('No Owner Project');
+    });
+
+    it('should respect includeAll even when combined with other filters', async () => {
+      const storage = new InMemoryStorageProvider();
+      const registry = new ProjectRegistry({ storage });
+
+      const user1 = createUserId('user-1');
+
+      await registry.open({ name: 'Alpha Project', owner: { userName: 'User 1', userId: user1 } }, user1);
+      await registry.open({ name: 'Beta Project', owner: { userName: 'User 1', userId: user1 } }, user1);
+      await registry.open({ name: 'Gamma Project', owner: { userName: 'User 1', userId: user1 } }, user1);
+
+      // includeAll with namePattern should work
+      const result = await registry.listProjects({ includeAll: true, namePattern: 'Project' });
+      expect(result.projects).toHaveLength(3);
     });
   });
 });

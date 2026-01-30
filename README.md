@@ -800,6 +800,32 @@ console.log(result.projects); // Array of project summaries
 console.log(result.pagination); // { currentPage: 1, pageSize: 50, totalCount: 10, totalPages: 1, hasNext: false, hasPrevious: false }
 ```
 
+#### Security behavior
+
+The `listProjects()` API enforces access control based on ownership:
+
+- **No filters provided**: Returns only projects **without** owner information (public projects)
+- **`ownerUserId` specified**: Returns only projects owned by that user
+- **`ownerGroupId` specified**: Returns only projects owned by that group
+- **`includeAll: true`**: Returns **all** projects (privileged operation - use with caution)
+
+This default behavior prevents unauthorized access to projects owned by other users. For admin dashboards or system operations, explicitly set `includeAll: true` to bypass ownership filtering.
+
+```ts
+// Default: only projects without owner
+const publicProjects = await registry.listProjects();
+
+// Filter by user: only that user's projects
+const myProjects = await registry.listProjects({
+  ownerUserId: myUserId,
+});
+
+// Admin: all projects (use carefully!)
+const allProjects = await registry.listProjects({
+  includeAll: true,
+});
+```
+
 #### Filtering by owner
 
 Find projects owned by a specific user or group:

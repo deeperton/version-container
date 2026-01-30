@@ -102,6 +102,12 @@ export interface ProjectsQuery {
    * Filter by update date (inclusive upper bound).
    */
   readonly updatedBefore?: ISO8601Timestamp;
+  /**
+   * When true, bypasses ownership filtering to list all projects.
+   * This is a privileged operation that should only be used in special cases (e.g., admin dashboards).
+   * @default false
+   */
+  readonly includeAll?: boolean;
 }
 
 /**

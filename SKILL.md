@@ -34,11 +34,14 @@ Project
 | `PartId` | Branded part identifier | `createPartId('frontend')` |
 | `PartVersionId` | Branded version identifier | `createPartVersionId('v1.0.0')` |
 | `ComboId` | Branded combo identifier | `createComboId('baseline')` |
+| `AdapterId` | Branded adapter identifier | `createAdapterId('git')` |
 | `UserId` | Branded user identifier | `createUserId('user-123')` |
 | `UserGroupId` | Branded user group identifier | `createUserGroupId('team-alpha')` |
 | `OwnerInfo` | Owner metadata | `{ userName, userId, userGroupId? }` |
 | `ProjectSnapshot` | Complete project state | Full project with parts/versions/combos |
 | `ProjectSummary` | Lightweight project info | id, name, description, owner, updatedAt |
+| `ProjectsQuery` | Query options for listProjects | `{ ownerUserId?, namePattern?, limit?, page?, includeAll? }` |
+| `ProjectListResult` | Paginated list of projects | `{ projects[], pagination{} }` |
 
 ## Installation
 
@@ -55,6 +58,7 @@ import {
   createPartId,
   createPartVersionId,
   createComboId,
+  createAdapterId,
   createUserId,
   createUserGroupId,
 } from 'version-container';
@@ -92,6 +96,11 @@ await registry.addCombo(handle.projectId, {
     { partId, versionId: createPartVersionId('1.0.0') }
   ],
 });
+
+// 6. List projects (secure by default)
+const myUserId = createUserId('user-123');
+const result = await registry.listProjects({ ownerUserId: myUserId });
+console.log(result.projects); // Array of your projects with stats
 ```
 
 ## Storage Provider Selection
@@ -439,6 +448,82 @@ await handle.update((s) => ({
 await handle.save();
 ```
 
+### Listing Projects with Filtering and Pagination
+
+The `listProjects()` API provides secure, paginated access to projects with filtering capabilities. This is essential for building project browsers, dashboards, and admin interfaces.
+
+#### Security Behavior
+
+**Important**: The API enforces access control by default:
+
+- **No filters**: Returns only projects **without** owner info (public projects)
+- **`ownerUserId`**: Returns only projects owned by that user
+- **`ownerGroupId`**: Returns only projects owned by that group
+- **`includeAll: true`**: Returns **all** projects (privileged operation - use with caution)
+
+```typescript
+import type { ProjectsQuery } from 'version-container';
+
+// Default: only public projects (without owner)
+const publicProjects = await registry.listProjects();
+console.log(publicProjects.pagination); // { currentPage, pageSize, totalCount, totalPages, hasNext, hasPrevious }
+
+// Filter by user: only that user's projects
+const myProjects = await registry.listProjects({
+  ownerUserId: createUserId('user-123'),
+});
+
+// Filter by group: only that group's projects
+const teamProjects = await registry.listProjects({
+  ownerGroupId: createUserGroupId('engineering-team'),
+});
+
+// Admin: all projects (privileged)
+const allProjects = await registry.listProjects({
+  includeAll: true,
+});
+```
+
+#### Pagination
+
+```typescript
+// Navigate pages
+const page1 = await registry.listProjects({ limit: 10, page: 1 });
+if (page1.pagination.hasNext) {
+  const page2 = await registry.listProjects({ limit: 10, page: 2 });
+}
+```
+
+#### Combined Filters
+
+```typescript
+// Find engineering team's "rocket" projects updated recently
+const results = await registry.listProjects({
+  ownerGroupId: createUserGroupId('engineering-team'),
+  namePattern: 'rocket',
+  updatedAfter: '2024-06-01T00:00:00Z',
+  limit: 20,
+});
+```
+
+#### Project Summary with Stats
+
+Each result includes owner info and statistics:
+
+```typescript
+const result = await registry.listProjects({ includeAll: true });
+
+for (const project of result.projects) {
+  console.log(project.id);          // Project ID
+  console.log(project.name);        // Project name
+  console.log(project.owner);       // OwnerInfo or undefined
+  console.log(project.partsCount);  // Number of parts
+  console.log(project.combosCount); // Number of combos
+  console.log(project.createdAt);   // Creation timestamp
+  console.log(project.updatedAt);   // Last update timestamp
+}
+```
+
 ## Event Subscription
 
 ```typescript
@@ -527,9 +612,9 @@ const registry = new ProjectRegistry({
 
 ## Storage Comparison
 
-| Provider | Environment | Use Case | Persistence |
-|----------|-------------|----------|-------------|
-| `InMemoryStorageProvider` | Any | Testing, caching | No |
-| `LocalStorageStorageProvider` | Browser | Web apps | Yes (browser) |
-| `SqliteStorageProvider` | Node.js | Desktop/server apps | Yes (file) |
-| `MongoDbStorageProvider` | Node.js | Distributed systems | Yes (remote) |
+| Provider | Environment | Use Case | Persistence | listProjects Support |
+|----------|-------------|----------|-------------|---------------------|
+| `InMemoryStorageProvider` | Any | Testing, caching | No | ✓ Full filtering & pagination |
+| `LocalStorageStorageProvider` | Browser | Web apps | Yes (browser) | ✓ Full filtering & pagination |
+| `SqliteStorageProvider` | Node.js | Desktop/server apps | Yes (file) | ✓ Indexed columns, migrations |
+| `MongoDbStorageProvider` | Node.js | Distributed systems | Yes (remote) | ✓ Aggregation pipelines |

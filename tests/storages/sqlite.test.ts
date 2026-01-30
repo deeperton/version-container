@@ -767,13 +767,14 @@ describe('SqliteStorageProvider', () => {
 
       await provider.saveSnapshot(snapshot);
 
-      const result = await provider.listProjects();
+      // Use includeAll to see all projects (since this one has an owner)
+      const result = await provider.listProjects({ includeAll: true });
 
       expect(result.projects).toHaveLength(1);
       const p = result.projects[0];
       expect(p.owner?.userName).toBe('Test Owner');
-      expect(p.owner?.userId).toBe('owner-123' as ProjectId);
-      expect(p.owner?.userGroupId).toBe('group-789' as ProjectId);
+      expect(p.owner?.userId).toBe('owner-123' as UserId);
+      expect(p.owner?.userGroupId).toBe('group-789' as UserGroupId);
       expect(p.partsCount).toBe(2);
       expect(p.combosCount).toBe(1);
       expect(p.createdAt).toBe('2024-01-01T00:00:00.000Z' as ISO8601Timestamp);

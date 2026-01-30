@@ -422,6 +422,12 @@ export class SqliteStorageProvider implements StorageProvider {
   /**
    * Lists projects with filtering, sorting, and pagination support.
    *
+   * Security behavior:
+   * - If `includeAll` is true, returns all projects (privileged operation)
+   * - If `ownerUserId` is provided, returns only projects owned by that user
+   * - If `ownerGroupId` is provided, returns only projects owned by that group
+   * - If neither is provided, returns only projects WITHOUT owner info
+   *
    * @param query - Optional query parameters for filtering and pagination
    * @returns Paginated list of projects with metadata
    */
@@ -436,14 +442,18 @@ export class SqliteStorageProvider implements StorageProvider {
     const whereClauses: string[] = [];
     const params: (string | number)[] = [];
 
-    if (query?.ownerUserId) {
-      whereClauses.push('owner_user_id = ?');
-      params.push(query.ownerUserId as string);
-    }
-
-    if (query?.ownerGroupId) {
-      whereClauses.push('owner_user_group_id = ?');
-      params.push(query.ownerGroupId as string);
+    // Security: Apply ownership filtering unless includeAll is explicitly true
+    if (!query?.includeAll) {
+      if (query?.ownerUserId) {
+        whereClauses.push('owner_user_id = ?');
+        params.push(query.ownerUserId as string);
+      } else if (query?.ownerGroupId) {
+        whereClauses.push('owner_user_group_id = ?');
+        params.push(query.ownerGroupId as string);
+      } else {
+        // No owner specified - only return projects WITHOUT owner info
+        whereClauses.push('owner_user_id IS NULL');
+      }
     }
 
     if (query?.namePattern) {

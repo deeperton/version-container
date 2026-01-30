@@ -60,6 +60,12 @@ export class InMemoryStorageProvider implements StorageProvider {
   /**
    * Lists projects with filtering, sorting, and pagination support.
    *
+   * Security behavior:
+   * - If `includeAll` is true, returns all projects (privileged operation)
+   * - If `ownerUserId` is provided, returns only projects owned by that user
+   * - If `ownerGroupId` is provided, returns only projects owned by that group
+   * - If neither is provided, returns only projects WITHOUT owner info
+   *
    * @param query - Optional query parameters for filtering and pagination
    * @returns Paginated list of projects with metadata
    */
@@ -70,17 +76,20 @@ export class InMemoryStorageProvider implements StorageProvider {
     // Filter snapshots based on query
     let filtered = Array.from(this.snapshots.values());
 
-    // Apply filters
-    if (query?.ownerUserId) {
-      filtered = filtered.filter(
-        (s) => s.project.owner?.userId === query.ownerUserId
-      );
-    }
-
-    if (query?.ownerGroupId) {
-      filtered = filtered.filter(
-        (s) => s.project.owner?.userGroupId === query.ownerGroupId
-      );
+    // Security: Apply ownership filtering unless includeAll is explicitly true
+    if (!query?.includeAll) {
+      if (query?.ownerUserId) {
+        filtered = filtered.filter(
+          (s) => s.project.owner?.userId === query.ownerUserId
+        );
+      } else if (query?.ownerGroupId) {
+        filtered = filtered.filter(
+          (s) => s.project.owner?.userGroupId === query.ownerGroupId
+        );
+      } else {
+        // No owner specified - only return projects WITHOUT owner info
+        filtered = filtered.filter((s) => !s.project.owner?.userId);
+      }
     }
 
     if (query?.namePattern) {
