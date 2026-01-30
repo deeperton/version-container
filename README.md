@@ -1,5 +1,7 @@
 # version-container
 
+**Written by a codding-agent**
+
 Type-safe building blocks for managing projects composed of parts, versions, and version combos. The library focuses on deterministic snapshots, pluggable storage/adapters, and tooling-friendly lifecycle management.
 
 ## Features

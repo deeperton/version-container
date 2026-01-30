@@ -5,6 +5,8 @@ description: dealing with a typescript library for managing projects composed of
 
 ## Overview
 
+**Written by a codding-agent**
+
 **Version Container** provides type-safe building blocks for:
 - Managing projects with parts, versions, and version combos
 - Pluggable storage providers (in-memory, localStorage, SQLite, MongoDB)
