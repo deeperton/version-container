@@ -1,6 +1,11 @@
 import type { PartAdapter, StorageProvider } from '../models/adapter.js';
-import type { ProjectInit, ProjectSnapshot } from '../models/project.js';
-import type { AdapterId, ComboId, PartId, PartVersionId, ProjectId } from '../models/base.js';
+import type {
+  ProjectListResult,
+  ProjectsQuery,
+  ProjectInit,
+  ProjectSnapshot,
+} from '../models/project.js';
+import type { AdapterId, ComboId, PartId, PartVersionId, ProjectId, UserId } from '../models/base.js';
 import type { PartDefinition, PartInit, PartVersion, PartVersionInit } from '../models/part.js';
 import type { VersionCombo, VersionComboInit } from '../models/combo.js';
 import type {
@@ -17,7 +22,7 @@ import { ProjectHandle } from './project-handle.js';
 import { createProjectId } from './ids.js';
 import { ProjectEventDispatcher } from './events/project-events.js';
 import { cloneValue } from './utils/clone.js';
-import { ProjectAlreadyOpenError, ProjectNotFoundError } from './errors.js';
+import { ProjectAlreadyOpenError, ProjectAccessDeniedError, ProjectNotFoundError } from './errors.js';
 
 interface ProjectRegistryOptions {
   readonly storage: StorageProvider;
@@ -35,6 +40,8 @@ export class ProjectRegistry {
   private readonly events: ProjectEventDispatcher;
   private readonly adapters = new Map<AdapterId, PartAdapter>();
   private readonly handles = new Map<ProjectId, ProjectHandle>();
+  /** Tracks which user authenticated each cached project */
+  private readonly authenticatedUsers = new Map<ProjectId, UserId>();
 
   constructor(options: ProjectRegistryOptions) {
     this.storage = options.storage;
@@ -49,20 +56,51 @@ export class ProjectRegistry {
   /**
    * Opens a new project based on the provided initialization data.
    * The initial snapshot is persisted immediately.
+   *
+   * @param init - Initial project definition supplied by the caller.
+   * @param asUser - Optional user ID of the caller for ownership validation.
+   * @param options - Optional configuration for ownership behavior.
+   * @returns A handle for managing the newly opened project.
+   * @throws {ProjectAccessDeniedError} When init.owner is set but asUser doesn't match.
    */
-  async open(init: ProjectInit): Promise<ProjectHandle> {
-    const projectId = createProjectId(init.id);
+  async open(
+    init: ProjectInit,
+    asUser?: UserId,
+    options: { ignoreOwnership?: boolean } = {}
+  ): Promise<ProjectHandle> {
+    // Ownership validation: if init has owner, check asUser matches (unless bypassed)
+    if (init.owner && !options.ignoreOwnership) {
+      if (!asUser || asUser !== init.owner.userId) {
+        throw new ProjectAccessDeniedError(
+          createProjectId(init.id),
+          init.owner.userId
+        );
+      }
+    }
+
+    // Auto-set owner if asUser provided but no owner in init
+    const finalInit: ProjectInit =
+      asUser && !init.owner
+        ? { ...init, owner: { userName: 'Unknown', userId: asUser } }
+        : init;
+
+    const projectId = createProjectId(finalInit.id);
     if (this.handles.has(projectId)) {
       throw new ProjectAlreadyOpenError(projectId);
     }
 
-    const snapshot = buildProjectSnapshot({ ...init, id: projectId }, { clock: this.clock });
+    const snapshot = buildProjectSnapshot({ ...finalInit, id: projectId }, { clock: this.clock });
 
     // TODO(middleware): project:create hook opportunity before persistence.
     await this.storage.saveSnapshot(snapshot);
 
     const handle = this.createHandle(projectId, snapshot);
     this.handles.set(projectId, handle);
+
+    // Track authenticated user for internal operations
+    if (snapshot.project.owner && !options.ignoreOwnership) {
+      this.authenticatedUsers.set(projectId, snapshot.project.owner.userId);
+    }
 
     await this.events.emit('project:created', {
       projectId,
@@ -74,16 +112,63 @@ export class ProjectRegistry {
 
   /**
    * Loads an existing project from storage or returns the already opened handle.
+   *
+   * @param projectId - Identifier of the project to load.
+   * @param asUser - Optional user ID of the caller for ownership validation.
+   * @param options - Optional configuration for ownership behavior.
+   * @returns A handle for managing the loaded project.
+   * @throws {ProjectNotFoundError} When project doesn't exist in storage.
+   * @throws {ProjectAccessDeniedError} When project has owner but asUser doesn't match.
    */
-  async load(projectId: ProjectId): Promise<ProjectHandle> {
+  async load(
+    projectId: ProjectId,
+    asUser?: UserId,
+    options: { ignoreOwnership?: boolean } = {}
+  ): Promise<ProjectHandle> {
+    // Check cache FIRST
     const existing = this.handles.get(projectId);
     if (existing) {
+      const snapshot = await existing.getSnapshot();
+
+      // If no asUser provided, use the authenticated user (for internal calls)
+      const effectiveUser = asUser ?? this.authenticatedUsers.get(projectId);
+
+      // Verify ownership for cached projects
+      if (snapshot.project.owner && !options.ignoreOwnership) {
+        if (!effectiveUser || effectiveUser !== snapshot.project.owner.userId) {
+          throw new ProjectAccessDeniedError(
+            projectId,
+            snapshot.project.owner.userId
+          );
+        }
+      }
+
+      // Update authenticated user if asUser is explicitly provided
+      if (asUser && snapshot.project.owner && !options.ignoreOwnership) {
+        this.authenticatedUsers.set(projectId, asUser);
+      }
+
       return existing;
     }
 
     const snapshot = await this.storage.loadSnapshot(projectId);
     if (!snapshot) {
       throw new ProjectNotFoundError(projectId);
+    }
+
+    // Ownership validation for newly loaded projects
+    if (snapshot.project.owner && !options.ignoreOwnership) {
+      if (!asUser || asUser !== snapshot.project.owner.userId) {
+        throw new ProjectAccessDeniedError(
+          projectId,
+          snapshot.project.owner.userId
+        );
+      }
+    }
+
+    // Track authenticated user
+    if (snapshot.project.owner && !options.ignoreOwnership && asUser) {
+      this.authenticatedUsers.set(projectId, asUser);
     }
 
     // TODO(middleware): project:load hook opportunity after snapshot retrieval.
@@ -111,6 +196,7 @@ export class ProjectRegistry {
 
     await handle.close(options);
     this.handles.delete(projectId);
+    this.authenticatedUsers.delete(projectId);
   }
 
   /**
@@ -162,6 +248,20 @@ export class ProjectRegistry {
    */
   listOpenProjects(): readonly ProjectId[] {
     return Array.from(this.handles.keys());
+  }
+
+  /**
+   * Lists projects from storage with filtering and pagination support.
+   *
+   * @param query - Optional query parameters for filtering and pagination
+   * @returns Paginated list of projects with metadata
+   * @throws {Error} When storage provider does not support listing projects
+   */
+  async listProjects(query?: ProjectsQuery): Promise<ProjectListResult> {
+    if (!this.storage.listProjects) {
+      throw new Error('Storage provider does not support listing projects');
+    }
+    return this.storage.listProjects(query);
   }
 
   /**

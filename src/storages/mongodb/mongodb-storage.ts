@@ -1,7 +1,19 @@
 import type { Collection, Db, MongoClient } from 'mongodb';
-import type { ProjectId } from '../../models/base.js';
+import type {
+  ISO8601Timestamp,
+  OwnerInfo,
+  ProjectId,
+  UserId,
+  UserGroupId,
+} from '../../models/base.js';
 import type { StorageProvider } from '../../models/adapter.js';
-import type { ProjectSnapshot, ProjectSummary } from '../../models/project.js';
+import type {
+  ProjectListResult,
+  ProjectListSummary,
+  ProjectsQuery,
+  ProjectSnapshot,
+  ProjectSummary,
+} from '../../models/project.js';
 
 /**
  * Options for configuring the MongoDB storage provider.
@@ -34,6 +46,7 @@ const DEFAULT_CONNECTION_STRING = 'mongodb://localhost:27017';
 const DEFAULT_DATABASE = 'version-container';
 const DEFAULT_COLLECTION = 'snapshots';
 const DEFAULT_ID = 'mongodb';
+const DEFAULT_PAGE_SIZE = 50;
 
 /**
  * MongoDB storage provider for persisting project snapshots.
@@ -82,6 +95,21 @@ export class MongoDbStorageProvider implements StorageProvider {
     this.client = client;
     this.db = client.db(this.databaseName);
     this.snapshots = this.db.collection<ProjectSnapshot>(this.collectionName);
+
+    // Create indexes for efficient querying
+    // Run asynchronously without blocking - indexes will be created in the background
+    // Check if createIndex exists (may not exist in test mocks)
+    if (typeof this.snapshots.createIndex === 'function') {
+      this.snapshots.createIndex({ 'project.owner.userId': 1 }).catch(() => {
+        // Ignore index creation errors (may already exist)
+      });
+      this.snapshots.createIndex({ 'project.owner.userGroupId': 1 }).catch(() => {
+        // Ignore index creation errors
+      });
+      this.snapshots.createIndex({ 'project.createdAt': -1 }).catch(() => {
+        // Ignore index creation errors
+      });
+    }
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -146,6 +174,133 @@ export class MongoDbStorageProvider implements StorageProvider {
       const { id, name, description, updatedAt } = snapshot.project;
       return { id, name, description, updatedAt };
     });
+  }
+
+  /**
+   * Lists projects with filtering, sorting, and pagination support.
+   *
+   * @param query - Optional query parameters for filtering and pagination
+   * @returns Paginated list of projects with metadata
+   */
+  async listProjects(query?: ProjectsQuery): Promise<ProjectListResult> {
+    await this.ensureInitialized();
+
+    const limit = query?.limit ?? DEFAULT_PAGE_SIZE;
+    const page = query?.page ?? 1;
+    const skip = (page - 1) * limit;
+
+    // Build filter object from query
+    const filter: Record<string, unknown> = {};
+
+    if (query?.ownerUserId) {
+      filter['project.owner.userId'] = query.ownerUserId;
+    }
+
+    if (query?.ownerGroupId) {
+      filter['project.owner.userGroupId'] = query.ownerGroupId;
+    }
+
+    if (query?.namePattern) {
+      filter['project.name'] = { $regex: query.namePattern, $options: 'i' };
+    }
+
+    if (query?.createdAfter || query?.createdBefore) {
+      filter['project.createdAt'] = {};
+      if (query.createdAfter) {
+        (filter['project.createdAt'] as Record<string, string>).$gte =
+          query.createdAfter;
+      }
+      if (query.createdBefore) {
+        (filter['project.createdAt'] as Record<string, string>).$lte =
+          query.createdBefore;
+      }
+    }
+
+    if (query?.updatedAfter || query?.updatedBefore) {
+      filter['project.updatedAt'] = {};
+      if (query.updatedAfter) {
+        (filter['project.updatedAt'] as Record<string, string>).$gte =
+          query.updatedAfter;
+      }
+      if (query.updatedBefore) {
+        (filter['project.updatedAt'] as Record<string, string>).$lte =
+          query.updatedBefore;
+      }
+    }
+
+    // Count total matching documents
+    const totalCount = await this.snapshots!.countDocuments(filter);
+
+    // Aggregation pipeline to get paginated results with computed fields
+    const pipeline = [
+      { $match: filter },
+      {
+        $project: {
+          _id: 0,
+          'project.id': 1,
+          'project.name': 1,
+          'project.description': 1,
+          'project.createdAt': 1,
+          'project.updatedAt': 1,
+          'project.owner': 1,
+          partsCount: { $size: '$parts' },
+          combosCount: { $size: '$combos' },
+        },
+      },
+      { $sort: { 'project.updatedAt': -1 } },
+      { $skip: skip },
+      { $limit: limit },
+    ];
+
+    const snapshots = await this.snapshots!.aggregate(pipeline).toArray();
+
+    const projects: ProjectListSummary[] = snapshots.map((doc: unknown) => {
+      const snapshot = doc as {
+        project: {
+          id: ProjectId;
+          name: string;
+          description?: string;
+          createdAt: ISO8601Timestamp;
+          updatedAt: ISO8601Timestamp;
+          owner?: {
+            userName: string;
+            userId: UserId;
+            userGroupId?: UserGroupId;
+          };
+        };
+        partsCount: number;
+        combosCount: number;
+      };
+
+      return {
+        id: snapshot.project.id,
+        name: snapshot.project.name,
+        description: snapshot.project.description,
+        owner: snapshot.project.owner as OwnerInfo | undefined,
+        createdAt: snapshot.project.createdAt,
+        updatedAt: snapshot.project.updatedAt,
+        partsCount: snapshot.partsCount,
+        combosCount: snapshot.combosCount,
+      };
+    });
+
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(totalCount / limit);
+    const currentPage = page;
+    const hasNext = currentPage < totalPages;
+    const hasPrevious = currentPage > 1;
+
+    return {
+      projects,
+      pagination: {
+        currentPage,
+        pageSize: limit,
+        totalCount,
+        totalPages,
+        hasNext,
+        hasPrevious,
+      },
+    };
   }
 
   /**

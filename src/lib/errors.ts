@@ -1,4 +1,4 @@
-import type { ComboId, PartId, PartVersionId, ProjectId } from '../models/base.js';
+import type { ComboId, PartId, PartVersionId, ProjectId, UserId } from '../models/base.js';
 
 /**
  * Base error class for all version-container errors.
@@ -54,7 +54,8 @@ export type VersionContainerErrorCode =
   | 'PROJECT_NOT_IN_STORAGE'
   | 'DUPLICATE_IDENTIFIER'
   | 'PART_ALREADY_DELETED'
-  | 'VERSION_ALREADY_DELETED';
+  | 'VERSION_ALREADY_DELETED'
+  | 'PROJECT_ACCESS_DENIED';
 
 // ============================================================================
 // NotFoundError subclasses
@@ -260,6 +261,28 @@ export class ProjectNotInStorageError extends VersionContainerError {
   constructor(projectId: ProjectId) {
     super(`Project ${projectId as string} does not exist in storage.`, projectId as string);
     this.projectId = projectId;
+  }
+}
+
+// ============================================================================
+// Access Control Error subclasses
+// ============================================================================
+
+/**
+ * Thrown when attempting to load or open a project without proper ownership credentials.
+ */
+export class ProjectAccessDeniedError extends VersionContainerError {
+  readonly code = 'PROJECT_ACCESS_DENIED' as const;
+  readonly projectId: ProjectId;
+  readonly requiredUserId: UserId;
+
+  constructor(projectId: ProjectId, requiredUserId: UserId) {
+    super(
+      `Access denied: project "${projectId as string}" requires owner authentication (user ID: ${requiredUserId as string}).`,
+      projectId as string
+    );
+    this.projectId = projectId;
+    this.requiredUserId = requiredUserId;
   }
 }
 

@@ -173,12 +173,16 @@ const handle = await registry.open({
 });
 ```
 
-### Owner Tracking
+### Owner Tracking and Access Control
 
 All domain entities (Projects, Parts, Versions, Combos) support optional owner tracking for audit trails and access control.
 
+**Important**: Projects with owner information enforce access control - users must provide matching user ID when opening or loading.
+
 ```typescript
 import type { OwnerInfo } from 'version-container';
+
+const myUserId = createUserId('user-123');
 
 // Define owner information
 const owner: OwnerInfo = {
@@ -187,13 +191,38 @@ const owner: OwnerInfo = {
   userGroupId: createUserGroupId('engineering-team'), // optional
 };
 
-// Create project with owner
-const handle = await registry.open({
-  name: 'Rocket Guidance System',
-  owner,
-});
+// Create project with owner - must provide matching user ID
+const handle = await registry.open(
+  {
+    name: 'Rocket Guidance System',
+    owner,
+  },
+  myUserId // Must match owner.userId
+);
 
-// Create part with owner
+// Auto-set owner when creating a project
+const handle2 = await registry.open(
+  {
+    name: 'Another Project',
+    // No owner specified
+  },
+  myUserId // User is automatically set as owner
+);
+
+// Load a project with owner - must provide matching user ID
+const loaded = await registry.load(handle.projectId, myUserId);
+
+// Load a project without owner - no user ID needed
+const noOwnerProject = await registry.load(someOtherProjectId);
+
+// Bypass ownership check (admin use case)
+const adminHandle = await registry.load(
+  projectId,
+  undefined,
+  { ignoreOwnership: true }
+);
+
+// Create part with owner (no access control for parts/versions)
 await registry.addPart(handle.projectId, {
   id: createPartId('engine'),
   name: 'Engine Controller',
@@ -430,13 +459,17 @@ import {
   PartNotFoundError,
   VersionNotFoundError,
   ComboNotFoundError,
+  ProjectAccessDeniedError,
   VersionContainerError,
 } from 'version-container';
 
 try {
-  await registry.deletePartVersion(projectId, versionId);
+  await registry.load(projectId, createUserId('user-999'));
 } catch (error) {
-  if (error instanceof PartNotFoundError) {
+  if (error instanceof ProjectAccessDeniedError) {
+    console.log('Access denied for project:', error.projectId);
+    console.log('Required owner:', error.requiredUserId);
+  } else if (error instanceof PartNotFoundError) {
     console.log('Part not found:', error.partId);
   } else if (error instanceof VersionContainerError) {
     console.log('Container error:', error.code, error.entityId);

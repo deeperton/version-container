@@ -1,6 +1,15 @@
-import type { ProjectId } from '../../models/base.js';
+import type {
+  ProjectId,
+  ISO8601Timestamp,
+} from '../../models/base.js';
 import type { StorageProvider } from '../../models/adapter.js';
-import type { ProjectSnapshot, ProjectSummary } from '../../models/project.js';
+import type {
+  ProjectListResult,
+  ProjectListSummary,
+  ProjectsQuery,
+  ProjectSnapshot,
+  ProjectSummary,
+} from '../../models/project.js';
 
 export interface LocalStorageStorageOptions {
   readonly id?: string;
@@ -9,6 +18,7 @@ export interface LocalStorageStorageOptions {
 
 const DEFAULT_KEY_PREFIX = 'version-container:';
 const SUMMARY_INDEX_KEY = 'version-container:__summaries';
+const DEFAULT_PAGE_SIZE = 50;
 
 /**
  * Storage provider that persists project snapshots to browser localStorage.
@@ -56,6 +66,104 @@ export class LocalStorageStorageProvider implements StorageProvider {
   async listSummaries(): Promise<readonly ProjectSummary[]> {
     const summaries = this.loadSummaryIndex();
     return summaries.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  /**
+   * Lists projects with filtering, sorting, and pagination support.
+   *
+   * @param query - Optional query parameters for filtering and pagination
+   * @returns Paginated list of projects with metadata
+   */
+  async listProjects(query?: ProjectsQuery): Promise<ProjectListResult> {
+    const limit = query?.limit ?? DEFAULT_PAGE_SIZE;
+    const page = query?.page ?? 1;
+
+    // Load all snapshots (necessary for filtering by owner/stats)
+    const snapshots = this.loadAllSnapshots();
+    let filtered = snapshots;
+
+    // Apply filters
+    if (query?.ownerUserId) {
+      filtered = filtered.filter(
+        (s: ProjectSnapshot) => s.project.owner?.userId === query.ownerUserId
+      );
+    }
+
+    if (query?.ownerGroupId) {
+      filtered = filtered.filter(
+        (s: ProjectSnapshot) => s.project.owner?.userGroupId === query.ownerGroupId
+      );
+    }
+
+    if (query?.namePattern) {
+      const pattern = query.namePattern.toLowerCase();
+      filtered = filtered.filter((s: ProjectSnapshot) =>
+        s.project.name.toLowerCase().includes(pattern)
+      );
+    }
+
+    if (query?.createdAfter) {
+      filtered = filtered.filter(
+        (s: ProjectSnapshot) => s.project.createdAt >= (query.createdAfter as ISO8601Timestamp)
+      );
+    }
+
+    if (query?.createdBefore) {
+      filtered = filtered.filter(
+        (s: ProjectSnapshot) => s.project.createdAt <= (query.createdBefore as ISO8601Timestamp)
+      );
+    }
+
+    if (query?.updatedAfter) {
+      filtered = filtered.filter(
+        (s: ProjectSnapshot) => s.project.updatedAt >= (query.updatedAfter as ISO8601Timestamp)
+      );
+    }
+
+    if (query?.updatedBefore) {
+      filtered = filtered.filter(
+        (s: ProjectSnapshot) => s.project.updatedAt <= (query.updatedBefore as ISO8601Timestamp)
+      );
+    }
+
+    // Sort by updatedAt descending
+    filtered.sort(
+      (a: ProjectSnapshot, b: ProjectSnapshot) =>
+        b.project.updatedAt.localeCompare(a.project.updatedAt)
+    );
+
+    const totalCount = filtered.length;
+    const offset = (page - 1) * limit;
+    const paginated = filtered.slice(offset, offset + limit);
+
+    const projects: ProjectListSummary[] = paginated.map((snapshot: ProjectSnapshot) => ({
+      id: snapshot.project.id,
+      name: snapshot.project.name,
+      description: snapshot.project.description,
+      owner: snapshot.project.owner,
+      createdAt: snapshot.project.createdAt,
+      updatedAt: snapshot.project.updatedAt,
+      partsCount: snapshot.parts.length,
+      combosCount: snapshot.combos.length,
+    }));
+
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(totalCount / limit);
+    const currentPage = page;
+    const hasNext = currentPage < totalPages;
+    const hasPrevious = currentPage > 1;
+
+    return {
+      projects,
+      pagination: {
+        currentPage,
+        pageSize: limit,
+        totalCount,
+        totalPages,
+        hasNext,
+        hasPrevious,
+      },
+    };
   }
 
   /**
@@ -110,6 +218,28 @@ export class LocalStorageStorageProvider implements StorageProvider {
     const summaries = this.loadSummaryIndex();
     const filtered = summaries.filter((s) => s.id !== projectId);
     globalThis.localStorage.setItem(SUMMARY_INDEX_KEY, JSON.stringify(filtered));
+  }
+
+  /**
+   * Loads all full snapshots from localStorage.
+   * Used by listProjects when filtering is needed.
+   */
+  private loadAllSnapshots(): ProjectSnapshot[] {
+    const snapshots: ProjectSnapshot[] = [];
+    for (let i = 0; i < globalThis.localStorage.length; i++) {
+      const key = globalThis.localStorage.key(i);
+      if (key?.startsWith(this.keyPrefix) && key !== SUMMARY_INDEX_KEY) {
+        try {
+          const serialized = globalThis.localStorage.getItem(key);
+          if (serialized) {
+            snapshots.push(JSON.parse(serialized) as ProjectSnapshot);
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+    return snapshots;
   }
 
   private rebuildSummaryIndex(): ProjectSummary[] {

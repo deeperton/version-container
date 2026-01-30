@@ -2,7 +2,16 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import type { Database as DbType } from 'better-sqlite3';
 import { SqliteStorageProvider } from '../../src/storages/sqlite/sqlite-storage.js';
-import type { ProjectSnapshot, ProjectId, ISO8601Timestamp } from '../../src/models/index.js';
+import type {
+  AdapterId,
+  ComboId,
+  PartId,
+  ProjectSnapshot,
+  ProjectId,
+  ISO8601Timestamp,
+  UserId,
+  UserGroupId,
+} from '../../src/models/index.js';
 
 /**
  * Helper to create a test snapshot.
@@ -485,6 +494,298 @@ describe('SqliteStorageProvider', () => {
       // Cleanup temp file
       const fs = await import('node:fs');
       fs.unlinkSync(tempDbPath);
+    });
+  });
+
+  describe('migration system', () => {
+    it('should create adapter state table on initialization', async () => {
+      // Trigger initialization
+      await provider.saveSnapshot(createTestSnapshot('init', 'Init'));
+
+      // Verify state table exists by checking we can query it
+      const externalDb = new Database(':memory:') as DbType;
+      const p = new SqliteStorageProvider({ db: externalDb });
+      await p.saveSnapshot(createTestSnapshot('test', 'Test'));
+
+      const state = externalDb
+        .prepare('SELECT value FROM _adapter_state WHERE key = ?')
+        .get('version') as { value: string } | undefined;
+
+      expect(state).toBeDefined();
+      expect(state?.value).toBe('2'); // Current version
+
+      await p.close();
+      externalDb.close();
+    });
+
+    it('should run pending migrations on existing database', async () => {
+      const externalDb = new Database(':memory:') as DbType;
+
+      // Create old schema (version 1) - no _adapter_state table yet
+      externalDb.exec(`
+        CREATE TABLE IF NOT EXISTS snapshots (
+          project_id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          data TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_snapshots_name ON snapshots(name);
+        CREATE INDEX IF NOT EXISTS idx_snapshots_updated_at ON snapshots(updated_at DESC);
+      `);
+
+      // Create provider with old database - should migrate to version 2
+      const p = new SqliteStorageProvider({ db: externalDb });
+
+      // Verify new columns exist
+      const columns = externalDb
+        .prepare("PRAGMA table_info(snapshots)")
+        .all() as Array<{ name: string }>;
+
+      const columnNames = columns.map((c) => c.name);
+      expect(columnNames).toContain('owner_user_name');
+      expect(columnNames).toContain('owner_user_id');
+      expect(columnNames).toContain('owner_user_group_id');
+      expect(columnNames).toContain('parts_count');
+      expect(columnNames).toContain('combos_count');
+
+      // Verify version was updated
+      const state = externalDb
+        .prepare('SELECT value FROM _adapter_state WHERE key = ?')
+        .get('version') as { value: string };
+      expect(state?.value).toBe('2');
+
+      await p.close();
+      externalDb.close();
+    });
+
+    it('should extract owner info to columns on save', async () => {
+      const snapshot: ProjectSnapshot = {
+        schemaVersion: 1,
+        project: {
+          id: 'owner-test' as ProjectId,
+          name: 'Owner Test',
+          description: 'Testing owner extraction',
+          createdAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+          updatedAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+          owner: {
+            userName: 'Test User',
+            userId: 'user-123' as UserId,
+            userGroupId: 'group-456' as UserGroupId,
+          },
+        },
+        parts: [],
+        versions: [],
+        combos: [],
+        locks: [],
+      };
+
+      await provider.saveSnapshot(snapshot);
+
+      // Query the database to verify columns were populated
+      const externalDb = new Database(':memory:') as DbType;
+      const p = new SqliteStorageProvider({ db: externalDb });
+      await p.saveSnapshot(snapshot);
+
+      const row = externalDb
+        .prepare(
+          'SELECT owner_user_name, owner_user_id, owner_user_group_id FROM snapshots WHERE project_id = ?'
+        )
+        .get('owner-test') as {
+        owner_user_name: string | null;
+        owner_user_id: string | null;
+        owner_user_group_id: string | null;
+      } | undefined;
+
+      expect(row?.owner_user_name).toBe('Test User');
+      expect(row?.owner_user_id).toBe('user-123');
+      expect(row?.owner_user_group_id).toBe('group-456');
+
+      await p.close();
+      externalDb.close();
+    });
+
+    it('should extract stats to columns on save', async () => {
+      const snapshot: ProjectSnapshot = {
+        schemaVersion: 1,
+        project: {
+          id: 'stats-test' as ProjectId,
+          name: 'Stats Test',
+          description: 'Testing stats extraction',
+          createdAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+          updatedAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+        },
+        parts: [
+          { id: 'part-1' as PartId, name: 'Part 1', adapterId: 'test' as AdapterId },
+          { id: 'part-2' as PartId, name: 'Part 2', adapterId: 'test' as AdapterId },
+          { id: 'part-3' as PartId, name: 'Part 3', adapterId: 'test' as AdapterId },
+        ],
+        versions: [],
+        combos: [
+          {
+            id: 'combo-1' as ComboId,
+            name: 'Combo 1',
+            bindings: [],
+            createdAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+            updatedAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+          },
+          {
+            id: 'combo-2' as ComboId,
+            name: 'Combo 2',
+            bindings: [],
+            createdAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+            updatedAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+          },
+        ],
+        locks: [],
+      };
+
+      await provider.saveSnapshot(snapshot);
+
+      const externalDb = new Database(':memory:') as DbType;
+      const p = new SqliteStorageProvider({ db: externalDb });
+      await p.saveSnapshot(snapshot);
+
+      const row = externalDb
+        .prepare('SELECT parts_count, combos_count FROM snapshots WHERE project_id = ?')
+        .get('stats-test') as {
+        parts_count: number;
+        combos_count: number;
+      } | undefined;
+
+      expect(row?.parts_count).toBe(3);
+      expect(row?.combos_count).toBe(2);
+
+      await p.close();
+      externalDb.close();
+    });
+  });
+
+  describe('listProjects', () => {
+    it('should list projects with pagination', async () => {
+      // Create 15 projects
+      for (let i = 1; i <= 15; i++) {
+        await provider.saveSnapshot(createTestSnapshot(`proj-${i}`, `Project ${i}`));
+      }
+
+      const page1 = await provider.listProjects({ limit: 5, page: 1 });
+      expect(page1.projects).toHaveLength(5);
+      expect(page1.pagination.totalCount).toBe(15);
+      expect(page1.pagination.totalPages).toBe(3);
+      expect(page1.pagination.hasNext).toBe(true);
+      expect(page1.pagination.hasPrevious).toBe(false);
+
+      const page2 = await provider.listProjects({ limit: 5, page: 2 });
+      expect(page2.projects).toHaveLength(5);
+      expect(page2.pagination.hasNext).toBe(true);
+      expect(page2.pagination.hasPrevious).toBe(true);
+    });
+
+    it('should filter by ownerUserId', async () => {
+      const snapshot1: ProjectSnapshot = {
+        schemaVersion: 1,
+        project: {
+          id: 'proj-1' as ProjectId,
+          name: 'Project 1',
+          createdAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+          updatedAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+          owner: { userName: 'User 1', userId: 'user-1' as UserId },
+        },
+        parts: [],
+        versions: [],
+        combos: [],
+      };
+
+      const snapshot2: ProjectSnapshot = {
+        schemaVersion: 1,
+        project: {
+          id: 'proj-2' as ProjectId,
+          name: 'Project 2',
+          createdAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+          updatedAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+          owner: { userName: 'User 2', userId: 'user-2' as UserId },
+        },
+        parts: [],
+        versions: [],
+        combos: [],
+      };
+
+      await provider.saveSnapshot(snapshot1);
+      await provider.saveSnapshot(snapshot2);
+
+      const result = await provider.listProjects({ ownerUserId: 'user-1' as UserId });
+      expect(result.projects).toHaveLength(1);
+      expect(result.projects[0].owner?.userId).toBe('user-1' as UserId);
+    });
+
+    it('should filter by name pattern case-insensitively', async () => {
+      await provider.saveSnapshot(createTestSnapshot('proj-1', 'Rocket Guidance'));
+      await provider.saveSnapshot(createTestSnapshot('proj-2', 'Propulsion System'));
+      await provider.saveSnapshot(createTestSnapshot('proj-3', 'Navigation Module'));
+
+      const result = await provider.listProjects({ namePattern: 'rocket' });
+      expect(result.projects).toHaveLength(1);
+      expect(result.projects[0].name).toBe('Rocket Guidance');
+
+      const result2 = await provider.listProjects({ namePattern: 'SYSTEM' });
+      expect(result2.projects).toHaveLength(1);
+      expect(result2.projects[0].name).toBe('Propulsion System');
+    });
+
+    it('should include owner info and stats in results', async () => {
+      const snapshot: ProjectSnapshot = {
+        schemaVersion: 1,
+        project: {
+          id: 'full-test' as ProjectId,
+          name: 'Full Test',
+          description: 'Testing full data',
+          createdAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+          updatedAt: '2024-01-02T00:00:00.000Z' as ISO8601Timestamp,
+          owner: {
+            userName: 'Test Owner',
+            userId: 'owner-123' as UserId,
+            userGroupId: 'group-789' as UserGroupId,
+          },
+        },
+        parts: [
+          { id: 'part-1' as PartId, name: 'Part 1', adapterId: 'test' as AdapterId },
+          { id: 'part-2' as PartId, name: 'Part 2', adapterId: 'test' as AdapterId },
+        ],
+        versions: [],
+        combos: [
+          {
+            id: 'combo-1' as ComboId,
+            name: 'Combo 1',
+            bindings: [],
+            createdAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+            updatedAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+          },
+        ],
+        locks: [],
+      };
+
+      await provider.saveSnapshot(snapshot);
+
+      const result = await provider.listProjects();
+
+      expect(result.projects).toHaveLength(1);
+      const p = result.projects[0];
+      expect(p.owner?.userName).toBe('Test Owner');
+      expect(p.owner?.userId).toBe('owner-123' as ProjectId);
+      expect(p.owner?.userGroupId).toBe('group-789' as ProjectId);
+      expect(p.partsCount).toBe(2);
+      expect(p.combosCount).toBe(1);
+      expect(p.createdAt).toBe('2024-01-01T00:00:00.000Z' as ISO8601Timestamp);
+      expect(p.updatedAt).toBe('2024-01-02T00:00:00.000Z' as ISO8601Timestamp);
+    });
+
+    it('should return empty array when no projects match filter', async () => {
+      await provider.saveSnapshot(createTestSnapshot('proj-1', 'Project 1'));
+
+      const result = await provider.listProjects({ namePattern: 'nonexistent' });
+      expect(result.projects).toHaveLength(0);
+      expect(result.pagination.totalCount).toBe(0);
     });
   });
 });

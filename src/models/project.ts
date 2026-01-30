@@ -1,4 +1,4 @@
-import type { ISO8601Timestamp, MetadataRecord, OwnerInfo, ProjectId } from './base.js';
+import type { ISO8601Timestamp, MetadataRecord, OwnerInfo, ProjectId, UserId, UserGroupId } from './base.js';
 import type { PartDefinition, PartInit, PartVersion } from './part.js';
 import type { Lockfile, VersionCombo, VersionComboInit } from './combo.js';
 
@@ -59,3 +59,105 @@ export interface ProjectSummary {
   readonly owner?: OwnerInfo;
   readonly updatedAt: ISO8601Timestamp;
 }
+
+/**
+ * Query options for listing projects with filtering and pagination.
+ */
+export interface ProjectsQuery {
+  /**
+   * Maximum number of results per page.
+   * @default 50
+   */
+  readonly limit?: number;
+  /**
+   * Page number (1-indexed).
+   * @default 1
+   */
+  readonly page?: number;
+  /**
+   * Filter by owner user ID.
+   */
+  readonly ownerUserId?: UserId;
+  /**
+   * Filter by owner group ID.
+   */
+  readonly ownerGroupId?: UserGroupId;
+  /**
+   * Case-insensitive substring search in project name.
+   */
+  readonly namePattern?: string;
+  /**
+   * Filter by creation date (inclusive lower bound).
+   */
+  readonly createdAfter?: ISO8601Timestamp;
+  /**
+   * Filter by creation date (inclusive upper bound).
+   */
+  readonly createdBefore?: ISO8601Timestamp;
+  /**
+   * Filter by update date (inclusive lower bound).
+   */
+  readonly updatedAfter?: ISO8601Timestamp;
+  /**
+   * Filter by update date (inclusive upper bound).
+   */
+  readonly updatedBefore?: ISO8601Timestamp;
+}
+
+/**
+ * Enriched project summary for listing with statistics.
+ */
+export interface ProjectListSummary {
+  readonly id: ProjectId;
+  readonly name: string;
+  readonly description?: string;
+  readonly owner?: OwnerInfo;
+  readonly createdAt: ISO8601Timestamp;
+  readonly updatedAt: ISO8601Timestamp;
+  readonly partsCount: number;
+  readonly combosCount: number;
+}
+
+/**
+ * Pagination information for project list results.
+ */
+export type ProjectListPagination = {
+  /**
+   * Current page number (1-indexed).
+   */
+  readonly currentPage: number;
+  /**
+   * Number of items per page.
+   */
+  readonly pageSize: number;
+  /**
+   * Total number of items matching the query.
+   */
+  readonly totalCount: number;
+  /**
+   * Total number of pages.
+   */
+  readonly totalPages: number;
+  /**
+   * Whether there is a next page.
+   */
+  readonly hasNext: boolean;
+  /**
+   * Whether there is a previous page.
+   */
+  readonly hasPrevious: boolean;
+};
+
+/**
+ * Result of a listProjects query with pagination info.
+ */
+export type ProjectListResult = {
+  /**
+   * The list of projects for the current page.
+   */
+  readonly projects: readonly ProjectListSummary[];
+  /**
+   * Pagination metadata.
+   */
+  readonly pagination: ProjectListPagination;
+};

@@ -1,6 +1,6 @@
 import type { AdapterId, ProjectId } from './base.js';
 import type { PartDefinition, PartVersion, ResolvedPartVersion } from './part.js';
-import type { ProjectSnapshot, ProjectSummary } from './project.js';
+import type { ProjectListResult, ProjectsQuery, ProjectSnapshot, ProjectSummary } from './project.js';
 
 /**
  * Contract for storage adapters used by Project instances.
@@ -10,6 +10,12 @@ export interface StorageProvider {
   loadSnapshot(projectId: ProjectId): Promise<ProjectSnapshot | undefined>;
   saveSnapshot(snapshot: ProjectSnapshot): Promise<void>;
   listSummaries?(): Promise<readonly ProjectSummary[]>;
+  /**
+   * Lists projects with filtering, sorting, and pagination support.
+   * @param query - Optional query parameters for filtering and pagination
+   * @returns Paginated list of projects with metadata
+   */
+  listProjects?(query?: ProjectsQuery): Promise<ProjectListResult>;
 }
 
 /**

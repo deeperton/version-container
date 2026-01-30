@@ -405,6 +405,7 @@ try {
 | `DuplicateIdentifierError` | `DUPLICATE_IDENTIFIER` | Duplicate ID in snapshot build |
 | `PartAlreadyDeletedError` | `PART_ALREADY_DELETED` | Part is already soft-deleted |
 | `VersionAlreadyDeletedError` | `VERSION_ALREADY_DELETED` | Version is already soft-deleted |
+| `ProjectAccessDeniedError` | `PROJECT_ACCESS_DENIED` | User doesn't match project owner |
 
 All errors include a `code` property for programmatic handling and an `entityId` property with the relevant identifier.
 
@@ -453,7 +454,7 @@ The localStorage provider handles:
 
 #### SQLite Storage
 
-Server-side storage using SQLite with document-style storage and indexed search columns:
+Server-side storage using SQLite with document-style storage, indexed search columns, and automatic schema migrations:
 
 ```ts
 import { SqliteStorageProvider, ProjectRegistry } from 'version-container';
@@ -473,16 +474,26 @@ CREATE TABLE snapshots (
   description TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
+  owner_user_name TEXT,
+  owner_user_id TEXT,
+  owner_user_group_id TEXT,
+  parts_count INTEGER DEFAULT 0,
+  combos_count INTEGER DEFAULT 0,
   data TEXT NOT NULL  -- Full JSON document
 );
 
 CREATE INDEX idx_snapshots_name ON snapshots(name);
 CREATE INDEX idx_snapshots_updated_at ON snapshots(updated_at DESC);
+CREATE INDEX idx_snapshots_created_at ON snapshots(created_at DESC);
+CREATE INDEX idx_snapshots_owner_user_id ON snapshots(owner_user_id);
+CREATE INDEX idx_snapshots_owner_user_group_id ON snapshots(owner_user_group_id);
 ```
 
 Features include:
-- **Document storage**: Complete snapshot stored as JSON in `data` column
-- **Indexed search**: Fast lookups by `project_id`, `name`, and `updated_at`
+- **Document storage**: Complete snapshot stored as JSON in `data` column (source of truth)
+- **Indexed search**: Fast lookups by `project_id`, `name`, `updated_at`, `created_at`, and owner columns
+- **Automatic migrations**: Schema evolves via built-in migration system with version tracking
+- **Migration state**: `_adapter_state` table tracks current schema version
 - **Lazy initialization**: Database connection created on first use
 - **Upsert semantics**: `INSERT ... ON CONFLICT DO UPDATE` for save operations
 - **Optional dependency injection**: Pass an existing `Database` instance for testing
@@ -707,6 +718,206 @@ const summary = await registry.getPartSummary(projectId, partId);
 console.log(summary?.owner?.userName); // "John Doe"
 ```
 
+### 15. Project access control
+
+When a project has owner information, the library enforces access control. Users must provide their user ID when opening or loading projects that have an owner.
+
+```ts
+import { createUserId, type UserId } from 'version-container';
+
+const myUserId = createUserId('user-123');
+const otherUserId = createUserId('user-999');
+
+// Open a project with owner - must provide matching user ID
+const handle = await registry.open(
+  {
+    name: 'My Project',
+    owner: { userName: 'Jane Smith', userId: myUserId },
+  },
+  myUserId // Must match the owner's userId
+);
+
+// Auto-set owner when creating a project
+const handle2 = await registry.open(
+  {
+    name: 'Another Project',
+    // No owner specified
+  },
+  myUserId // User is automatically set as owner
+);
+
+// Load a project with owner - must provide matching user ID
+const loaded = await registry.load(handle.projectId, myUserId);
+
+// Load a project without owner - no user ID needed
+const noOwnerProject = await registry.load(someOtherProjectId);
+```
+
+#### Bypassing ownership checks
+
+For admin or system operations, you can explicitly bypass ownership checks:
+
+```ts
+// Load any project regardless of ownership
+const handle = await registry.load(
+  projectId,
+  undefined, // No user ID
+  { ignoreOwnership: true } // Explicitly bypass
+);
+```
+
+#### Access denied errors
+
+When access control fails, a `ProjectAccessDeniedError` is thrown:
+
+```ts
+import { ProjectAccessDeniedError } from 'version-container';
+
+try {
+  await registry.load(projectId, otherUserId);
+} catch (error) {
+  if (error instanceof ProjectAccessDeniedError) {
+    console.log(`Access denied for project ${error.projectId}`);
+    console.log(`Required owner: ${error.requiredUserId}`);
+  }
+}
+```
+
+**Important**: Once a project is successfully loaded with proper credentials, subsequent operations on that registry instance work without re-specifying the user ID. The library tracks which user authenticated each project for internal operations.
+
+### 16. List projects with filtering and pagination
+
+The library provides a `listProjects()` API for querying projects across storage with support for filtering, sorting, and pagination. This is useful for building project browsers, dashboards, and admin interfaces.
+
+```ts
+import {
+  type ProjectsQuery,
+  type ProjectListResult,
+  createUserId,
+  createUserGroupId,
+} from 'version-container';
+
+// List all projects with default pagination (50 items per page)
+const result = await registry.listProjects();
+console.log(result.projects); // Array of project summaries
+console.log(result.pagination); // { currentPage: 1, pageSize: 50, totalCount: 10, totalPages: 1, hasNext: false, hasPrevious: false }
+```
+
+#### Filtering by owner
+
+Find projects owned by a specific user or group:
+
+```ts
+// Get all projects owned by a user
+const userProjects = await registry.listProjects({
+  ownerUserId: createUserId('user-123'),
+});
+
+// Get all projects owned by a group
+const groupProjects = await registry.listProjects({
+  ownerGroupId: createUserGroupId('engineering-team'),
+});
+```
+
+#### Searching by name
+
+Use case-insensitive pattern matching to find projects by name:
+
+```ts
+// Find all projects with "rocket" in the name
+const rocketProjects = await registry.listProjects({
+  namePattern: 'rocket',
+});
+```
+
+#### Date range filtering
+
+Filter projects by creation or update date:
+
+```ts
+// Find projects created after a specific date
+const recentProjects = await registry.listProjects({
+  createdAfter: '2024-01-01T00:00:00Z',
+});
+
+// Find projects updated within a date range
+const updatedRecently = await registry.listProjects({
+  updatedAfter: '2024-06-01T00:00:00Z',
+  updatedBefore: '2024-12-31T23:59:59Z',
+});
+```
+
+#### Pagination
+
+Navigate through large result sets with page-based pagination:
+
+```ts
+// Get the first page with custom page size
+const page1 = await registry.listProjects({
+  limit: 10,
+  page: 1,
+});
+
+// Navigate to next page if available
+if (page1.pagination.hasNext) {
+  const page2 = await registry.listProjects({
+    limit: 10,
+    page: 2,
+  });
+}
+
+// Navigate to previous page
+if (page2.pagination.hasPrevious) {
+  const page1Again = await registry.listProjects({
+    limit: 10,
+    page: 1,
+  });
+}
+```
+
+#### Combined filters
+
+Multiple filters can be combined for refined queries:
+
+```ts
+// Find engineering team's "rocket" projects updated recently
+const results = await registry.listProjects({
+  ownerGroupId: createUserGroupId('engineering-team'),
+  namePattern: 'rocket',
+  updatedAfter: '2024-06-01T00:00:00Z',
+  limit: 20,
+});
+```
+
+#### Project summary with stats
+
+Each project in the results includes owner information and statistics:
+
+```ts
+const result = await registry.listProjects();
+
+for (const project of result.projects) {
+  console.log(project.id);           // Project ID
+  console.log(project.name);         // Project name
+  console.log(project.description);  // Optional description
+  console.log(project.createdAt);    // Creation timestamp
+  console.log(project.updatedAt);    // Last update timestamp
+  console.log(project.owner);        // OwnerInfo or undefined
+  console.log(project.partsCount);   // Number of parts
+  console.log(project.combosCount);  // Number of combos
+}
+```
+
+#### Storage adapter support
+
+The `listProjects()` API is supported by all built-in storage providers:
+
+- **SQLite**: Uses indexed columns for efficient filtering and pagination. Includes automatic migration system for schema evolution.
+- **MongoDB**: Uses aggregation pipelines with `$size` operator for computed stats.
+- **In-Memory**: Full-featured implementation for testing and development.
+
+If a storage provider doesn't support `listProjects()`, calling the method will throw an error.
+
 ### Notes on middleware
 
 Middleware hooks are not yet implemented, but TODO markers in the code indicate where lifecycle events (`project:create`, `project:load`, `project:save`, etc.) will be exposed. These placeholders make it straightforward to add logging, validation, or policy enforcement layers in future iterations.
@@ -715,7 +926,7 @@ Middleware hooks are not yet implemented, but TODO markers in the code indicate 
 
 Key exports available today:
 
-- Domain models – `ProjectInit`, `PartDefinition`, `VersionCombo`, `VersionComboInit`, filter types (`PartFilter`, `VersionFilter`, `ComboFilter`), summary types (`PartSummary`, `VersionSummary`, `ComboSummary`), owner types (`OwnerInfo`, `UserId`, `UserGroupId`), and related branded ID types (see `src/models`).
+- Domain models – `ProjectInit`, `PartDefinition`, `VersionCombo`, `VersionComboInit`, filter types (`PartFilter`, `VersionFilter`, `ComboFilter`, `ProjectsQuery`), summary types (`PartSummary`, `VersionSummary`, `ComboSummary`, `ProjectListSummary`, `ProjectListResult`), owner types (`OwnerInfo`, `UserId`, `UserGroupId`), and related branded ID types (see `src/models`).
 - Error types – `VersionContainerError` (base class) and 15 specific error classes (`PartNotFoundError`, `VersionNotFoundError`, etc.) for type-safe error handling.
 - Utilities – `createPartId`, `createPartVersionId`, `createComboId`, `createAdapterId`, `createUserId`, `createUserGroupId`, `cloneValue`, and the `AsyncMutex`.
 - Runtime services – `ProjectRegistry`, `ProjectHandle`, `ProjectEventDispatcher`, `buildProjectSnapshot`, plus a `SystemClock` you can replace with a deterministic clock in tests.
@@ -764,6 +975,7 @@ Key exports available today:
 | `getCombosByVersionId(projectId, versionId)` | Get all combo IDs referencing a version |
 | **Utility** | |
 | `listOpenProjects()` | List open projects |
+| `listProjects(query?)` | List all projects with filtering and pagination |
 | `getEventDispatcher()` | Get the event dispatcher |
 
 Refer to the source modules for comprehensive type definitions and JSDoc comments.

@@ -23,10 +23,13 @@ describe('Owner Functionality', () => {
         userGroupId: createUserGroupId('team-avionics'),
       };
 
-      const handle = await registry.open({
-        name: 'Rocket Guidance System',
-        owner,
-      });
+      const handle = await registry.open(
+        {
+          name: 'Rocket Guidance System',
+          owner,
+        },
+        owner.userId // Must match owner
+      );
 
       const snapshot = await handle.getSnapshot();
       expect(snapshot.project.owner).toEqual(owner);
@@ -44,10 +47,13 @@ describe('Owner Functionality', () => {
         userId: createUserId('user-456'),
       };
 
-      const handle = await registry.open({
-        name: 'Propulsion System',
-        owner,
-      });
+      const handle = await registry.open(
+        {
+          name: 'Propulsion System',
+          owner,
+        },
+        owner.userId // Must match owner
+      );
 
       const snapshot = await handle.getSnapshot();
       expect(snapshot.project.owner).toEqual(owner);
@@ -462,16 +468,19 @@ describe('Owner Functionality', () => {
         userGroupId: createUserGroupId('team-persistent'),
       };
 
-      const handle = await registry.open({
-        name: 'Test Project',
-        owner,
-      });
+      const handle = await registry.open(
+        {
+          name: 'Test Project',
+          owner,
+        },
+        owner.userId // Must match owner
+      );
 
       // Close the handle (saves to storage)
       await registry.close(handle.projectId);
 
-      // Load the project again
-      const reloaded = await registry.load(handle.projectId);
+      // Load the project again with the same user
+      const reloaded = await registry.load(handle.projectId, owner.userId);
       const snapshot = await reloaded.getSnapshot();
 
       expect(snapshot.project.owner).toEqual(owner);
