@@ -3,9 +3,9 @@ name: Using version-container library
 description: dealing with a typescript library for managing projects composed of parts, versions, and version combos with pluggable storage backends
 ---
 
-## Overview
+The library source code is available at https://github.com/deeperton/version-container
 
-**Written by a codding-agent**
+## Overview
 
 **Version Container** provides type-safe building blocks for:
 - Managing projects with parts, versions, and version combos
