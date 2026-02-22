@@ -2,6 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import type { Database as DbType } from 'better-sqlite3';
 import { SqliteStorageProvider } from '../../src/storages/sqlite/sqlite-storage.js';
+import {
+  ProjectRegistry,
+  createPartId,
+  createPartVersionId,
+  createAdapterId,
+  createUserId,
+} from '../../src/index.js';
 import type {
   AdapterId,
   ComboId,
@@ -787,6 +794,254 @@ describe('SqliteStorageProvider', () => {
       const result = await provider.listProjects({ namePattern: 'nonexistent' });
       expect(result.projects).toHaveLength(0);
       expect(result.pagination.totalCount).toBe(0);
+    });
+  });
+
+  describe('white-box persistence verification', () => {
+    it('should persist data correctly to database file with parts and versions', async () => {
+      // Use a real file for this test (not in-memory)
+      const testDbPath = `/tmp/test-persistence-${Date.now()}.db`;
+      const fs = await import('node:fs');
+
+      try {
+        // Create provider and registry
+        const storage = new SqliteStorageProvider({ filePath: testDbPath });
+        const registry = new ProjectRegistry({ storage });
+
+        // Create a project with owner
+        const ownerUserId = createUserId('test-user');
+        const handle = await registry.open(
+          {
+            name: 'Test Persistence Project',
+            description: 'Testing white-box persistence',
+            owner: {
+              userName: 'Test User',
+              userId: ownerUserId,
+              userGroupId: 'engineering-team' as UserGroupId,
+            },
+          },
+          ownerUserId
+        );
+
+        // Add parts with different adapters
+        await registry.addPart(handle.projectId, {
+          id: createPartId('ui-kit'),
+          name: 'UI Kit',
+          adapterId: createAdapterId('npm'),
+          tags: ['frontend', 'react'],
+          metadata: { language: 'TypeScript' },
+          owner: { userName: 'Test User', userId: ownerUserId },
+        });
+
+        await registry.addPart(handle.projectId, {
+          id: createPartId('backend-api'),
+          name: 'Backend API',
+          adapterId: createAdapterId('git'),
+          tags: ['backend', 'api'],
+          metadata: { language: 'Go' },
+        });
+
+        // Add versions to parts
+        await registry.addPartVersion(handle.projectId, createPartId('ui-kit'), {
+          id: createPartVersionId('v1.0.0'),
+          label: '1.0.0',
+          locator: { uri: 'npm://ui-kit@1.0.0' },
+          metadata: { stable: true },
+        });
+
+        await registry.addPartVersion(handle.projectId, createPartId('ui-kit'), {
+          id: createPartVersionId('v1.1.0'),
+          label: '1.1.0',
+          locator: { uri: 'npm://ui-kit@1.1.0' },
+          metadata: { stable: false },
+        });
+
+        await registry.addPartVersion(handle.projectId, createPartId('backend-api'), {
+          id: createPartVersionId('v2.0.0'),
+          label: '2.0.0',
+          locator: { uri: 'git://api.git@v2.0.0' },
+        });
+
+        // Close the registry to flush data
+        await registry.close(handle.projectId, { save: true });
+        await storage.close();
+
+        // Now open the database file directly and verify the data
+        const directDb = new Database(testDbPath) as DbType;
+
+        // Verify the table exists and has the expected structure
+        const tableInfo = directDb.prepare('PRAGMA table_info(snapshots)').all() as Array<{
+          name: string;
+          type: string;
+        }>;
+        const columnNames = tableInfo.map((c) => c.name);
+        expect(columnNames).toContain('project_id');
+        expect(columnNames).toContain('name');
+        expect(columnNames).toContain('data');
+        expect(columnNames).toContain('owner_user_id');
+        expect(columnNames).toContain('parts_count');
+        expect(columnNames).toContain('combos_count');
+
+        // Verify indexed columns contain correct data
+        const row = directDb
+          .prepare(`
+            SELECT
+              project_id, name, description,
+              created_at, updated_at,
+              owner_user_name, owner_user_id, owner_user_group_id,
+              parts_count, combos_count
+            FROM snapshots
+            WHERE project_id = ?
+          `)
+          .get(handle.projectId) as {
+          project_id: string;
+          name: string;
+          description: string | null;
+          created_at: string;
+          updated_at: string;
+          owner_user_name: string | null;
+          owner_user_id: string | null;
+          owner_user_group_id: string | null;
+          parts_count: number;
+          combos_count: number;
+        } | undefined;
+
+        expect(row).toBeDefined();
+        expect(row?.project_id).toBe(handle.projectId);
+        expect(row?.name).toBe('Test Persistence Project');
+        expect(row?.description).toBe('Testing white-box persistence');
+        expect(row?.owner_user_name).toBe('Test User');
+        expect(row?.owner_user_id).toBe('test-user');
+        expect(row?.owner_user_group_id).toBe('engineering-team');
+        expect(row?.parts_count).toBe(2); // Two parts
+        expect(row?.combos_count).toBe(0); // No combos
+
+        // Verify the full JSON data contains all parts and versions
+        const dataRow = directDb
+          .prepare('SELECT data FROM snapshots WHERE project_id = ?')
+          .get(handle.projectId) as { data: string };
+
+        expect(dataRow).toBeDefined();
+        const snapshot = JSON.parse(dataRow.data) as ProjectSnapshot;
+
+        // Verify project metadata
+        expect(snapshot.project.id).toBe(handle.projectId);
+        expect(snapshot.project.name).toBe('Test Persistence Project');
+        expect(snapshot.project.owner?.userName).toBe('Test User');
+        expect(snapshot.project.owner?.userId).toBe(ownerUserId);
+
+        // Verify parts (order may vary, so find them by ID)
+        expect(snapshot.parts).toHaveLength(2);
+        const uiKitPart = snapshot.parts.find((p) => p.id === 'ui-kit');
+        expect(uiKitPart).toBeDefined();
+        expect(uiKitPart?.name).toBe('UI Kit');
+        expect(uiKitPart?.adapterId).toBe('npm');
+        expect(uiKitPart?.tags).toEqual(['frontend', 'react']);
+        expect(uiKitPart?.metadata).toEqual({ language: 'TypeScript' });
+        expect(uiKitPart?.owner?.userId).toBe(ownerUserId);
+
+        const backendPart = snapshot.parts.find((p) => p.id === 'backend-api');
+        expect(backendPart).toBeDefined();
+        expect(backendPart?.name).toBe('Backend API');
+        expect(backendPart?.adapterId).toBe('git');
+        expect(backendPart?.tags).toEqual(['backend', 'api']);
+        expect(backendPart?.metadata).toEqual({ language: 'Go' });
+
+        // Verify versions
+        expect(snapshot.versions).toHaveLength(3);
+        const uiKitV1 = snapshot.versions.find((v) => v.id === 'v1.0.0');
+        expect(uiKitV1).toBeDefined();
+        expect(uiKitV1?.partId).toBe('ui-kit');
+        expect(uiKitV1?.locator).toEqual({ uri: 'npm://ui-kit@1.0.0' });
+        expect(uiKitV1?.label).toBe('1.0.0');
+
+        const uiKitV2 = snapshot.versions.find((v) => v.id === 'v1.1.0');
+        expect(uiKitV2).toBeDefined();
+        expect(uiKitV2?.partId).toBe('ui-kit');
+        expect(uiKitV2?.locator).toEqual({ uri: 'npm://ui-kit@1.1.0' });
+        expect(uiKitV2?.label).toBe('1.1.0');
+
+        const backendV2 = snapshot.versions.find((v) => v.id === 'v2.0.0');
+        expect(backendV2).toBeDefined();
+        expect(backendV2?.partId).toBe('backend-api');
+        expect(backendV2?.locator).toEqual({ uri: 'git://api.git@v2.0.0' });
+        expect(backendV2?.label).toBe('2.0.0');
+
+        // Verify adapter state table exists and has version
+        const stateRow = directDb
+          .prepare('SELECT value FROM _adapter_state WHERE key = ?')
+          .get('version') as { value: string } | undefined;
+        expect(stateRow).toBeDefined();
+        expect(stateRow?.value).toBe('2'); // Current adapter version
+
+        directDb.close();
+      } finally {
+        // Clean up the test database file
+        if (fs.existsSync(testDbPath)) {
+          fs.unlinkSync(testDbPath);
+        }
+      }
+    });
+
+    it('should handle multiple projects in the same database file', async () => {
+      const testDbPath = `/tmp/test-multi-project-${Date.now()}.db`;
+      const fs = await import('node:fs');
+
+      try {
+        const storage = new SqliteStorageProvider({ filePath: testDbPath });
+        const registry = new ProjectRegistry({ storage });
+
+        // Create multiple projects
+        const handle1 = await registry.open({ name: 'Project Alpha' });
+        await registry.addPart(handle1.projectId, {
+          id: createPartId('part-a'),
+          name: 'Part A',
+          adapterId: createAdapterId('npm'),
+        });
+
+        const handle2 = await registry.open({ name: 'Project Beta' });
+        await registry.addPart(handle2.projectId, {
+          id: createPartId('part-b'),
+          name: 'Part B',
+          adapterId: createAdapterId('git'),
+        });
+        await registry.addPartVersion(handle2.projectId, createPartId('part-b'), {
+          id: createPartVersionId('v1'),
+          label: '1.0',
+          locator: { uri: 'git://part-b@v1' },
+        });
+
+        // Save and close
+        await registry.close(handle1.projectId, { save: true });
+        await registry.close(handle2.projectId, { save: true });
+        await storage.close();
+
+        // Verify directly from database
+        const directDb = new Database(testDbPath) as DbType;
+
+        const countRow = directDb
+          .prepare('SELECT COUNT(*) as count FROM snapshots')
+          .get() as { count: number };
+        expect(countRow.count).toBe(2);
+
+        const names = directDb
+          .prepare('SELECT name FROM snapshots ORDER BY name')
+          .all() as Array<{ name: string }>;
+        expect(names.map((n) => n.name)).toEqual(['Project Alpha', 'Project Beta']);
+
+        // Verify parts_count for each project
+        const partsCounts = directDb
+          .prepare('SELECT name, parts_count FROM snapshots ORDER BY name')
+          .all() as Array<{ name: string; parts_count: number }>;
+        expect(partsCounts[0].parts_count).toBe(1); // Project Alpha has 1 part
+        expect(partsCounts[1].parts_count).toBe(1); // Project Beta has 1 part
+
+        directDb.close();
+      } finally {
+        if (fs.existsSync(testDbPath)) {
+          fs.unlinkSync(testDbPath);
+        }
+      }
     });
   });
 });
