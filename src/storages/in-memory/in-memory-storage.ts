@@ -36,9 +36,7 @@ export class InMemoryStorageProvider implements StorageProvider {
     }
   }
 
-  async loadSnapshot(
-    projectId: ProjectId
-  ): Promise<ProjectSnapshot | undefined> {
+  async loadSnapshot(projectId: ProjectId): Promise<ProjectSnapshot | undefined> {
     const snapshot = this.snapshots.get(projectId);
     return snapshot ? cloneValue(snapshot) : undefined;
   }
@@ -79,13 +77,9 @@ export class InMemoryStorageProvider implements StorageProvider {
     // Security: Apply ownership filtering unless includeAll is explicitly true
     if (!query?.includeAll) {
       if (query?.ownerUserId) {
-        filtered = filtered.filter(
-          (s) => s.project.owner?.userId === query.ownerUserId
-        );
+        filtered = filtered.filter((s) => s.project.owner?.userId === query.ownerUserId);
       } else if (query?.ownerGroupId) {
-        filtered = filtered.filter(
-          (s) => s.project.owner?.userGroupId === query.ownerGroupId
-        );
+        filtered = filtered.filter((s) => s.project.owner?.userGroupId === query.ownerGroupId);
       } else {
         // No owner specified - only return projects WITHOUT owner info
         filtered = filtered.filter((s) => !s.project.owner?.userId);
@@ -94,33 +88,23 @@ export class InMemoryStorageProvider implements StorageProvider {
 
     if (query?.namePattern) {
       const pattern = query.namePattern.toLowerCase();
-      filtered = filtered.filter((s) =>
-        s.project.name.toLowerCase().includes(pattern)
-      );
+      filtered = filtered.filter((s) => s.project.name.toLowerCase().includes(pattern));
     }
 
     if (query?.createdAfter) {
-      filtered = filtered.filter(
-        (s) => s.project.createdAt >= query.createdAfter!
-      );
+      filtered = filtered.filter((s) => s.project.createdAt >= query.createdAfter!);
     }
 
     if (query?.createdBefore) {
-      filtered = filtered.filter(
-        (s) => s.project.createdAt <= query.createdBefore!
-      );
+      filtered = filtered.filter((s) => s.project.createdAt <= query.createdBefore!);
     }
 
     if (query?.updatedAfter) {
-      filtered = filtered.filter(
-        (s) => s.project.updatedAt >= query.updatedAfter!
-      );
+      filtered = filtered.filter((s) => s.project.updatedAt >= query.updatedAfter!);
     }
 
     if (query?.updatedBefore) {
-      filtered = filtered.filter(
-        (s) => s.project.updatedAt <= query.updatedBefore!
-      );
+      filtered = filtered.filter((s) => s.project.updatedAt <= query.updatedBefore!);
     }
 
     // Sort by updatedAt descending

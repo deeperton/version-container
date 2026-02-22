@@ -188,9 +188,9 @@ describe('Project Access Control', () => {
       await registry.close(handle.projectId);
 
       // Now try to load with different user - should fail
-      await expect(
-        registry.load(handle.projectId, otherUserId)
-      ).rejects.toThrow(ProjectAccessDeniedError);
+      await expect(registry.load(handle.projectId, otherUserId)).rejects.toThrow(
+        ProjectAccessDeniedError
+      );
     });
 
     it('should throw ProjectAccessDeniedError when project has owner but no asUser provided', async () => {
@@ -212,9 +212,7 @@ describe('Project Access Control', () => {
       await registry.close(handle.projectId);
 
       // Now try to load without asUser - should fail
-      await expect(registry.load(handle.projectId)).rejects.toThrow(
-        ProjectAccessDeniedError
-      );
+      await expect(registry.load(handle.projectId)).rejects.toThrow(ProjectAccessDeniedError);
     });
 
     it('should load project when ignoreOwnership: true regardless of asUser', async () => {
@@ -237,11 +235,7 @@ describe('Project Access Control', () => {
       await registry.close(handle.projectId);
 
       // Now load with different user but ignoreOwnership - should succeed
-      const loaded = await registry.load(
-        handle.projectId,
-        otherUserId,
-        { ignoreOwnership: true }
-      );
+      const loaded = await registry.load(handle.projectId, otherUserId, { ignoreOwnership: true });
       expect(loaded).toBeDefined();
     });
   });
@@ -268,9 +262,9 @@ describe('Project Access Control', () => {
       expect(loaded1).toBe(handle);
 
       // Try to load with different user - should fail even though cached
-      await expect(
-        registry.load(handle.projectId, otherUserId)
-      ).rejects.toThrow(ProjectAccessDeniedError);
+      await expect(registry.load(handle.projectId, otherUserId)).rejects.toThrow(
+        ProjectAccessDeniedError
+      );
     });
 
     it('should allow internal calls without asUser when user is authenticated', async () => {
@@ -315,9 +309,9 @@ describe('Project Access Control', () => {
       expect(loaded1).toBeDefined();
 
       // Second load with different user should fail
-      await expect(
-        registry.load(handle.projectId, otherUserId)
-      ).rejects.toThrow(ProjectAccessDeniedError);
+      await expect(registry.load(handle.projectId, otherUserId)).rejects.toThrow(
+        ProjectAccessDeniedError
+      );
     });
 
     it('should allow re-loading with same user', async () => {

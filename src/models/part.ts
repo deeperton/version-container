@@ -52,6 +52,7 @@ export interface PartVersionInit {
   readonly id?: PartVersionId;
   readonly label?: string;
   readonly locator: VersionLocator;
+  readonly tags?: readonly string[];
   readonly metadata?: MetadataRecord;
   readonly owner?: OwnerInfo;
 }
@@ -62,6 +63,7 @@ export interface PartVersionInit {
 export interface PartVersion extends Omit<PartVersionInit, 'id'> {
   readonly id: PartVersionId;
   readonly partId: PartId;
+  readonly tags?: readonly string[];
   readonly owner?: OwnerInfo;
 }
 

@@ -1743,6 +1743,229 @@ describe('ProjectHandle', () => {
         expect(ids).toHaveLength(1);
         expect(ids).toContain(versionIds.v2);
       });
+
+      it('filters by tagsAny (OR logic)', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        // v1 has tags: ['stable', 'production'], v2 has no tags
+        // First add tags to the versions
+        await handle.addVersionTags(versionIds.v1, ['stable', 'production']);
+        await handle.addVersionTags(versionIds.v2, ['beta']);
+
+        const stableVersions = handle.findVersions({ tagsAny: ['stable'] });
+        expect(stableVersions).toHaveLength(1);
+        expect(stableVersions).toContain(versionIds.v1);
+
+        const stableOrBeta = handle.findVersions({ tagsAny: ['stable', 'beta'] });
+        expect(stableOrBeta).toHaveLength(2);
+        expect(stableOrBeta).toContain(versionIds.v1);
+        expect(stableOrBeta).toContain(versionIds.v2);
+      });
+
+      it('filters by tagsAll (AND logic)', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        await handle.addVersionTags(versionIds.v1, ['stable', 'production', 'v1']);
+        await handle.addVersionTags(versionIds.v2, ['stable', 'beta']);
+
+        const stableAndProduction = handle.findVersions({ tagsAll: ['stable', 'production'] });
+        expect(stableAndProduction).toHaveLength(1);
+        expect(stableAndProduction).toContain(versionIds.v1);
+
+        const allThree = handle.findVersions({ tagsAll: ['stable', 'production', 'v1'] });
+        expect(allThree).toHaveLength(1);
+        expect(allThree).toContain(versionIds.v1);
+      });
+
+      it('combines tagsAny and tagsAll filters', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        await handle.addVersionTags(versionIds.v1, ['stable', 'prod']);
+        await handle.addVersionTags(versionIds.v2, ['beta', 'prod']);
+        await handle.addVersionTags(versionIds.v3, ['stable', 'dev']);
+
+        // Must have 'prod' AND either 'stable' OR 'beta'
+        const results = handle.findVersions({
+          tagsAll: ['prod'],
+          tagsAny: ['stable', 'beta'],
+        });
+        expect(results).toHaveLength(2);
+        expect(results).toContain(versionIds.v1);
+        expect(results).toContain(versionIds.v2);
+      });
+    });
+
+    describe('addVersionTags', () => {
+      it('should add tags to existing version', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        await handle.addVersionTags(versionIds.v1, ['production', 'tested']);
+
+        const version = handle.getVersionById(versionIds.v1);
+        expect(version?.tags).toContain('production');
+        expect(version?.tags).toContain('tested');
+      });
+
+      it('should not add duplicate tags', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        await handle.addVersionTags(versionIds.v1, ['stable', 'production']);
+        await handle.addVersionTags(versionIds.v1, ['stable', 'tested']);
+
+        const version = handle.getVersionById(versionIds.v1);
+        expect(version?.tags?.filter((t) => t === 'stable').length).toBe(1);
+      });
+
+      it('should reject tags containing spaces', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        await handle.addVersionTags(versionIds.v1, ['valid tag', 'also-bad', 'good']);
+
+        const version = handle.getVersionById(versionIds.v1);
+        // 'valid tag' should be filtered out due to space
+        // 'also-bad' and 'good' should be kept (hyphens are allowed)
+        expect(version?.tags).toContain('also-bad');
+        expect(version?.tags).toContain('good');
+        expect(version?.tags).not.toContain('valid tag');
+      });
+
+      it('should preserve case sensitivity in tags', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        await handle.addVersionTags(versionIds.v1, ['URL', 'url', 'Url']);
+
+        const version = handle.getVersionById(versionIds.v1);
+        // All three should be distinct tags
+        expect(version?.tags).toContain('URL');
+        expect(version?.tags).toContain('url');
+        expect(version?.tags).toContain('Url');
+      });
+
+      it('should allow special characters in tags', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        await handle.addVersionTags(versionIds.v1, ['v1.0.0', 'release@final', 'tag+special']);
+
+        const version = handle.getVersionById(versionIds.v1);
+        expect(version?.tags).toContain('v1.0.0');
+        expect(version?.tags).toContain('release@final');
+        expect(version?.tags).toContain('tag+special');
+      });
+    });
+
+    describe('removeVersionTags', () => {
+      it('should remove tags from version', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        await handle.addVersionTags(versionIds.v1, ['stable', 'production', 'tested']);
+        await handle.removeVersionTags(versionIds.v1, ['production']);
+
+        const version = handle.getVersionById(versionIds.v1);
+        expect(version?.tags).toContain('stable');
+        expect(version?.tags).not.toContain('production');
+        expect(version?.tags).toContain('tested');
+      });
+    });
+
+    describe('setVersionTags', () => {
+      it('should set all tags on version', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        await handle.addVersionTags(versionIds.v1, ['stable', 'production']);
+        await handle.setVersionTags(versionIds.v1, ['beta', 'dev']);
+
+        const version = handle.getVersionById(versionIds.v1);
+        expect(version?.tags).toEqual(['beta', 'dev']);
+      });
+
+      it('should remove all tags when setting empty array', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        await handle.addVersionTags(versionIds.v1, ['stable', 'production']);
+        await handle.setVersionTags(versionIds.v1, []);
+
+        const version = handle.getVersionById(versionIds.v1);
+        expect(version?.tags).toBeUndefined();
+      });
+    });
+
+    describe('getVersionTags', () => {
+      it('should return all tags for a version', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        await handle.addVersionTags(versionIds.v1, ['stable', 'production']);
+
+        const tags = handle.getVersionTags(versionIds.v1);
+        expect(tags).toEqual(['stable', 'production']);
+      });
+
+      it('should return undefined for version with no tags', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        const tags = handle.getVersionTags(versionIds.v2);
+        expect(tags).toBeUndefined();
+      });
+    });
+
+    describe('getVersionTagStats', () => {
+      it('should get version tag stats', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        await handle.addVersionTags(versionIds.v1, ['stable', 'v1']);
+        await handle.addVersionTags(versionIds.v2, ['stable', 'production']);
+        await handle.addVersionTags(versionIds.v3, ['beta']);
+
+        const stats = handle.getVersionTagStats();
+        expect(stats.get('stable')).toBe(2);
+        expect(stats.get('production')).toBe(1);
+        expect(stats.get('beta')).toBe(1);
+        expect(stats.get('v1')).toBe(1);
+      });
+    });
+
+    describe('getTopVersionTags', () => {
+      it('should get top version tags', async () => {
+        const { handle, versionIds } = await queryTestSetup();
+        // Add more versions to test sorting
+        await handle.addVersionTags(versionIds.v1, ['common']);
+        await handle.addVersionTags(versionIds.v2, ['common']);
+        await handle.addVersionTags(versionIds.v3, ['rare']);
+
+        const topTags = handle.getTopVersionTags(2);
+        expect(topTags).toEqual([
+          ['common', 2],
+          ['rare', 1],
+        ]);
+      });
+
+      it('should return empty array when no tags exist', async () => {
+        const { handle } = await queryTestSetup();
+        const topTags = handle.getTopVersionTags();
+        expect(topTags).toEqual([]);
+      });
+    });
+
+    describe('addPartVersion with tags', () => {
+      it('should create version with tags', async () => {
+        const { handle, partIds } = await queryTestSetup();
+        const version = await handle.addPartVersion(partIds.engine, {
+          locator: { uri: 'npm://react@18.0.0' },
+          tags: ['stable', 'latest'],
+        });
+
+        expect(version.tags).toEqual(['stable', 'latest']);
+      });
+
+      it('should validate tags when creating version', async () => {
+        const { handle, partIds } = await queryTestSetup();
+        const version = await handle.addPartVersion(partIds.engine, {
+          locator: { uri: 'npm://react@18.0.0' },
+          tags: ['valid', 'not valid', 'also-good'],
+        });
+
+        // 'not valid' should be filtered out due to space
+        expect(version.tags).toEqual(['valid', 'also-good']);
+      });
+
+      it('should keep part tags and version tags separate', async () => {
+        const { handle, partIds } = await queryTestSetup();
+        const part = handle.getPartById(partIds.engine);
+        const version = await handle.addPartVersion(partIds.engine, {
+          locator: { uri: 'npm://react@18.0.0' },
+          tags: ['stable'],
+        });
+
+        // Part tags should remain unchanged
+        expect(part?.tags).toEqual(['critical', 'hardware']);
+        // Version tags should be separate
+        expect(version.tags).toEqual(['stable']);
+      });
     });
 
     describe('findCombos', () => {

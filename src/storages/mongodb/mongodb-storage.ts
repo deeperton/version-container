@@ -165,8 +165,18 @@ export class MongoDbStorageProvider implements StorageProvider {
   async listSummaries(): Promise<readonly ProjectSummary[]> {
     await this.ensureInitialized();
 
-    const snapshots = await this.snapshots!
-      .find({}, { projection: { _id: 0, 'project.id': 1, 'project.name': 1, 'project.description': 1, 'project.updatedAt': 1 } })
+    const snapshots = await this.snapshots!.find(
+      {},
+      {
+        projection: {
+          _id: 0,
+          'project.id': 1,
+          'project.name': 1,
+          'project.description': 1,
+          'project.updatedAt': 1,
+        },
+      }
+    )
       .sort({ 'project.updatedAt': -1 })
       .toArray();
 
@@ -217,24 +227,20 @@ export class MongoDbStorageProvider implements StorageProvider {
     if (query?.createdAfter || query?.createdBefore) {
       filter['project.createdAt'] = {};
       if (query.createdAfter) {
-        (filter['project.createdAt'] as Record<string, string>).$gte =
-          query.createdAfter;
+        (filter['project.createdAt'] as Record<string, string>).$gte = query.createdAfter;
       }
       if (query.createdBefore) {
-        (filter['project.createdAt'] as Record<string, string>).$lte =
-          query.createdBefore;
+        (filter['project.createdAt'] as Record<string, string>).$lte = query.createdBefore;
       }
     }
 
     if (query?.updatedAfter || query?.updatedBefore) {
       filter['project.updatedAt'] = {};
       if (query.updatedAfter) {
-        (filter['project.updatedAt'] as Record<string, string>).$gte =
-          query.updatedAfter;
+        (filter['project.updatedAt'] as Record<string, string>).$gte = query.updatedAfter;
       }
       if (query.updatedBefore) {
-        (filter['project.updatedAt'] as Record<string, string>).$lte =
-          query.updatedBefore;
+        (filter['project.updatedAt'] as Record<string, string>).$lte = query.updatedBefore;
       }
     }
 

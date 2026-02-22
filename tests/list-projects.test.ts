@@ -94,9 +94,18 @@ describe('List Projects API', () => {
       const user1 = createUserId('user-1');
       const user2 = createUserId('user-2');
 
-      await registry.open({ name: 'Project 1', owner: { userName: 'User 1', userId: user1 } }, user1);
-      await registry.open({ name: 'Project 2', owner: { userName: 'User 2', userId: user2 } }, user2);
-      await registry.open({ name: 'Project 3', owner: { userName: 'User 1', userId: user1 } }, user1);
+      await registry.open(
+        { name: 'Project 1', owner: { userName: 'User 1', userId: user1 } },
+        user1
+      );
+      await registry.open(
+        { name: 'Project 2', owner: { userName: 'User 2', userId: user2 } },
+        user2
+      );
+      await registry.open(
+        { name: 'Project 3', owner: { userName: 'User 1', userId: user1 } },
+        user1
+      );
 
       const result1 = await registry.listProjects({ ownerUserId: user1 });
       expect(result1.projects).toHaveLength(2);
@@ -229,9 +238,18 @@ describe('List Projects API', () => {
       const user1 = createUserId('user-1');
       const user2 = createUserId('user-2');
 
-      await registry.open({ name: 'Rocket System', owner: { userName: 'User 1', userId: user1 } }, user1);
-      await registry.open({ name: 'Rocket Engine', owner: { userName: 'User 2', userId: user2 } }, user2);
-      await registry.open({ name: 'Navigation Module', owner: { userName: 'User 1', userId: user1 } }, user1);
+      await registry.open(
+        { name: 'Rocket System', owner: { userName: 'User 1', userId: user1 } },
+        user1
+      );
+      await registry.open(
+        { name: 'Rocket Engine', owner: { userName: 'User 2', userId: user2 } },
+        user2
+      );
+      await registry.open(
+        { name: 'Navigation Module', owner: { userName: 'User 1', userId: user1 } },
+        user1
+      );
 
       const result = await registry.listProjects({
         ownerUserId: user1,
@@ -349,7 +367,10 @@ describe('List Projects API', () => {
 
       // Create projects with and without owners
       await registry.open({ name: 'No Owner Project' });
-      await registry.open({ name: 'Owned Project', owner: { userName: 'User 1', userId: user1 } }, user1);
+      await registry.open(
+        { name: 'Owned Project', owner: { userName: 'User 1', userId: user1 } },
+        user1
+      );
 
       // Query without filters should only return projects without owner
       const result = await registry.listProjects();
@@ -366,8 +387,14 @@ describe('List Projects API', () => {
 
       // Create projects with different owners
       await registry.open({ name: 'No Owner Project' });
-      await registry.open({ name: 'User 1 Project', owner: { userName: 'User 1', userId: user1 } }, user1);
-      await registry.open({ name: 'User 2 Project', owner: { userName: 'User 2', userId: user2 } }, user2);
+      await registry.open(
+        { name: 'User 1 Project', owner: { userName: 'User 1', userId: user1 } },
+        user1
+      );
+      await registry.open(
+        { name: 'User 2 Project', owner: { userName: 'User 2', userId: user2 } },
+        user2
+      );
 
       // Query with ownerUserId should only return that user's projects
       const result1 = await registry.listProjects({ ownerUserId: user1 });
@@ -387,11 +414,17 @@ describe('List Projects API', () => {
       // Create projects with different group owners
       await registry.open({ name: 'No Owner Project' });
       await registry.open(
-        { name: 'Engineering Project', owner: { userName: 'User 1', userId: user1, userGroupId: group1 } },
+        {
+          name: 'Engineering Project',
+          owner: { userName: 'User 1', userId: user1, userGroupId: group1 },
+        },
         user1
       );
       await registry.open(
-        { name: 'Sales Project', owner: { userName: 'User 2', userId: user2, userGroupId: group2 } },
+        {
+          name: 'Sales Project',
+          owner: { userName: 'User 2', userId: user2, userGroupId: group2 },
+        },
         user2
       );
 
@@ -410,8 +443,14 @@ describe('List Projects API', () => {
 
       // Create projects with and without owners
       await registry.open({ name: 'No Owner Project' });
-      await registry.open({ name: 'User 1 Project', owner: { userName: 'User 1', userId: user1 } }, user1);
-      await registry.open({ name: 'User 2 Project', owner: { userName: 'User 2', userId: user2 } }, user2);
+      await registry.open(
+        { name: 'User 1 Project', owner: { userName: 'User 1', userId: user1 } },
+        user1
+      );
+      await registry.open(
+        { name: 'User 2 Project', owner: { userName: 'User 2', userId: user2 } },
+        user2
+      );
 
       // Query with includeAll: true should return all projects
       const result = await registry.listProjects({ includeAll: true });
@@ -428,9 +467,18 @@ describe('List Projects API', () => {
 
       const user1 = createUserId('user-1');
 
-      await registry.open({ name: 'Alpha Project', owner: { userName: 'User 1', userId: user1 } }, user1);
-      await registry.open({ name: 'Beta Project', owner: { userName: 'User 1', userId: user1 } }, user1);
-      await registry.open({ name: 'Gamma Project', owner: { userName: 'User 1', userId: user1 } }, user1);
+      await registry.open(
+        { name: 'Alpha Project', owner: { userName: 'User 1', userId: user1 } },
+        user1
+      );
+      await registry.open(
+        { name: 'Beta Project', owner: { userName: 'User 1', userId: user1 } },
+        user1
+      );
+      await registry.open(
+        { name: 'Gamma Project', owner: { userName: 'User 1', userId: user1 } },
+        user1
+      );
 
       // includeAll with namePattern should work
       const result = await registry.listProjects({ includeAll: true, namePattern: 'Project' });

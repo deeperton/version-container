@@ -1,4 +1,12 @@
-import type { AdapterId, ComboId, PartId, PartVersionId, ProjectId, UserId, UserGroupId } from '../models/base.js';
+import type {
+  AdapterId,
+  ComboId,
+  PartId,
+  PartVersionId,
+  ProjectId,
+  UserId,
+  UserGroupId,
+} from '../models/base.js';
 
 /**
  * Helper methods for creating branded identifiers in a consistent way.

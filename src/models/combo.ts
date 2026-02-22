@@ -1,4 +1,10 @@
-import type { ComboId, ISO8601Timestamp, LockfileDigest, MetadataRecord, OwnerInfo } from './base.js';
+import type {
+  ComboId,
+  ISO8601Timestamp,
+  LockfileDigest,
+  MetadataRecord,
+  OwnerInfo,
+} from './base.js';
 import type { ResolvedPartVersion, VersionBinding } from './part.js';
 
 /**

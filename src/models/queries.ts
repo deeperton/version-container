@@ -1,4 +1,12 @@
-import type { AdapterId, ComboId, MetadataRecord, OwnerInfo, PartId, PartVersionId, UserId } from './base.js';
+import type {
+  AdapterId,
+  ComboId,
+  MetadataRecord,
+  OwnerInfo,
+  PartId,
+  PartVersionId,
+  UserId,
+} from './base.js';
 
 /**
  * Filter criteria for finding parts.
@@ -17,6 +25,8 @@ export interface PartFilter {
 export interface VersionFilter {
   readonly partId?: PartId;
   readonly label?: string;
+  readonly tagsAny?: readonly string[];
+  readonly tagsAll?: readonly string[];
   readonly metadata?: MetadataRecord;
   readonly ownerUserId?: UserId;
   readonly includeDeleted?: boolean;

@@ -5,7 +5,14 @@ import type {
   ProjectInit,
   ProjectSnapshot,
 } from '../models/project.js';
-import type { AdapterId, ComboId, PartId, PartVersionId, ProjectId, UserId } from '../models/base.js';
+import type {
+  AdapterId,
+  ComboId,
+  PartId,
+  PartVersionId,
+  ProjectId,
+  UserId,
+} from '../models/base.js';
 import type { PartDefinition, PartInit, PartVersion, PartVersionInit } from '../models/part.js';
 import type { VersionCombo, VersionComboInit } from '../models/combo.js';
 import type {
@@ -22,7 +29,11 @@ import { ProjectHandle } from './project-handle.js';
 import { createProjectId } from './ids.js';
 import { ProjectEventDispatcher } from './events/project-events.js';
 import { cloneValue } from './utils/clone.js';
-import { ProjectAlreadyOpenError, ProjectAccessDeniedError, ProjectNotFoundError } from './errors.js';
+import {
+  ProjectAlreadyOpenError,
+  ProjectAccessDeniedError,
+  ProjectNotFoundError,
+} from './errors.js';
 
 interface ProjectRegistryOptions {
   readonly storage: StorageProvider;
@@ -71,18 +82,13 @@ export class ProjectRegistry {
     // Ownership validation: if init has owner, check asUser matches (unless bypassed)
     if (init.owner && !options.ignoreOwnership) {
       if (!asUser || asUser !== init.owner.userId) {
-        throw new ProjectAccessDeniedError(
-          createProjectId(init.id),
-          init.owner.userId
-        );
+        throw new ProjectAccessDeniedError(createProjectId(init.id), init.owner.userId);
       }
     }
 
     // Auto-set owner if asUser provided but no owner in init
     const finalInit: ProjectInit =
-      asUser && !init.owner
-        ? { ...init, owner: { userName: 'Unknown', userId: asUser } }
-        : init;
+      asUser && !init.owner ? { ...init, owner: { userName: 'Unknown', userId: asUser } } : init;
 
     const projectId = createProjectId(finalInit.id);
     if (this.handles.has(projectId)) {
@@ -136,10 +142,7 @@ export class ProjectRegistry {
       // Verify ownership for cached projects
       if (snapshot.project.owner && !options.ignoreOwnership) {
         if (!effectiveUser || effectiveUser !== snapshot.project.owner.userId) {
-          throw new ProjectAccessDeniedError(
-            projectId,
-            snapshot.project.owner.userId
-          );
+          throw new ProjectAccessDeniedError(projectId, snapshot.project.owner.userId);
         }
       }
 
@@ -159,10 +162,7 @@ export class ProjectRegistry {
     // Ownership validation for newly loaded projects
     if (snapshot.project.owner && !options.ignoreOwnership) {
       if (!asUser || asUser !== snapshot.project.owner.userId) {
-        throw new ProjectAccessDeniedError(
-          projectId,
-          snapshot.project.owner.userId
-        );
+        throw new ProjectAccessDeniedError(projectId, snapshot.project.owner.userId);
       }
     }
 

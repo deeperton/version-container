@@ -178,6 +178,18 @@ export class ProjectHandle {
         if (filter?.label !== undefined && version.label !== filter.label) {
           return false;
         }
+        // Tag filtering - OR logic (any match)
+        if (filter?.tagsAny && filter.tagsAny.length > 0) {
+          if (!version.tags || !filter.tagsAny.some((tag) => version.tags!.includes(tag))) {
+            return false;
+          }
+        }
+        // Tag filtering - AND logic (all match)
+        if (filter?.tagsAll && filter.tagsAll.length > 0) {
+          if (!version.tags || !filter.tagsAll.every((tag) => version.tags!.includes(tag))) {
+            return false;
+          }
+        }
         if (filter?.metadata) {
           if (!version.metadata) {
             return false;
@@ -360,6 +372,141 @@ export class ProjectHandle {
   }
 
   /**
+   * Adds tags to an existing version.
+   * Tags are validated (no spaces within tags, case-sensitive).
+   * @param versionId - The version to add tags to
+   * @param tags - Tags to add (duplicates are ignored)
+   * @returns The updated version
+   * @throws Error if version not found
+   */
+  async addVersionTags(versionId: PartVersionId, tags: readonly string[]): Promise<PartVersion> {
+    const version = this.getVersionById(versionId);
+    if (!version) {
+      throw new VersionNotFoundError(versionId);
+    }
+
+    const currentTags = version.tags ?? [];
+    const tagsToAdd = this.validateTags(tags).filter((t) => !currentTags.includes(t));
+    if (tagsToAdd.length === 0) {
+      return version; // No new tags to add
+    }
+
+    return this.updatePartVersion(versionId, (existing) => ({
+      ...existing,
+      tags: [...currentTags, ...tagsToAdd],
+    }));
+  }
+
+  /**
+   * Removes tags from an existing version.
+   * @param versionId - The version to remove tags from
+   * @param tags - Tags to remove
+   * @returns The updated version
+   * @throws Error if version not found
+   */
+  async removeVersionTags(versionId: PartVersionId, tags: readonly string[]): Promise<PartVersion> {
+    const version = this.getVersionById(versionId);
+    if (!version) {
+      throw new VersionNotFoundError(versionId);
+    }
+
+    if (!version.tags || version.tags.length === 0) {
+      return version; // No tags to remove
+    }
+
+    const updatedTags = version.tags.filter((t) => !tags.includes(t));
+    if (updatedTags.length === version.tags.length) {
+      return version; // No tags were removed
+    }
+
+    return this.updatePartVersion(versionId, (existing) => ({
+      ...existing,
+      tags: updatedTags.length > 0 ? updatedTags : undefined,
+    }));
+  }
+
+  /**
+   * Sets all tags on an existing version, replacing any existing tags.
+   * @param versionId - The version to set tags on
+   * @param tags - Tags to set (undefined or empty array removes all tags)
+   * @returns The updated version
+   * @throws Error if version not found
+   */
+  async setVersionTags(versionId: PartVersionId, tags?: readonly string[]): Promise<PartVersion> {
+    const version = this.getVersionById(versionId);
+    if (!version) {
+      throw new VersionNotFoundError(versionId);
+    }
+
+    // Validate tags - undefined or empty array -> remove tags
+    const normalizedTags = tags && tags.length > 0 ? this.validateTags(tags) : undefined;
+
+    if (this.areArraysEqual(version.tags, normalizedTags)) {
+      return version; // No change
+    }
+
+    return this.updatePartVersion(versionId, (existing) => ({
+      ...existing,
+      tags: normalizedTags,
+    }));
+  }
+
+  /**
+   * Gets all tags for a version.
+   * @param versionId - The version to get tags for
+   * @returns Array of tags or undefined if version not found or has no tags
+   */
+  getVersionTags(versionId: PartVersionId): readonly string[] | undefined {
+    return this.getVersionById(versionId)?.tags;
+  }
+
+  /**
+   * Gets all version tags with usage statistics.
+   * @returns Map of tag to count of versions with that tag
+   */
+  getVersionTagStats(): Map<string, number> {
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return new Map();
+    }
+
+    const tagCounts = new Map<string, number>();
+    for (const version of snapshot.versions) {
+      if (version.tags) {
+        for (const tag of version.tags) {
+          tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+        }
+      }
+    }
+    return tagCounts;
+  }
+
+  /**
+   * Gets all version tags sorted by usage (most used first).
+   * @param limit - Maximum number of tags to return (undefined = all)
+   * @returns Array of [tag, count] tuples sorted by count descending
+   */
+  getTopVersionTags(limit?: number): readonly [string, number][] {
+    const stats = this.getVersionTagStats();
+    return Array.from(stats.entries())
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, limit);
+  }
+
+  /**
+   * Helper method for array comparison.
+   */
+  private areArraysEqual(
+    a: readonly string[] | undefined,
+    b: readonly string[] | undefined
+  ): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    if (a.length !== b.length) return false;
+    return a.every((val, idx) => val === b[idx]);
+  }
+
+  /**
    * Checks if a part is soft-deleted by examining metadata.deletedAt
    */
   private isPartDeleted(part: PartDefinition): boolean {
@@ -371,6 +518,38 @@ export class ProjectHandle {
    */
   private isVersionDeleted(version: PartVersion): boolean {
     return version.metadata?.[METADATA_DELETED_AT] !== undefined;
+  }
+
+  /**
+   * Validates a tag value.
+   * - No spaces allowed within a tag
+   * - Empty tags are invalid
+   * @param tag - The tag to validate
+   * @returns The trimmed tag, or undefined if invalid
+   */
+  private validateTag(tag: string): string | undefined {
+    const trimmed = tag.trim();
+    // Check for spaces (not allowed within a tag)
+    if (trimmed.includes(' ') || trimmed.length === 0) {
+      return undefined;
+    }
+    return trimmed;
+  }
+
+  /**
+   * Validates and filters an array of tags.
+   * @param tags - Tags to validate
+   * @returns Array of valid, unique tags
+   */
+  private validateTags(tags: readonly string[]): string[] {
+    const valid = new Set<string>();
+    for (const tag of tags) {
+      const cleaned = this.validateTag(tag);
+      if (cleaned) {
+        valid.add(cleaned);
+      }
+    }
+    return Array.from(valid);
   }
 
   /**
@@ -598,11 +777,15 @@ export class ProjectHandle {
         throw new VersionAlreadyExistsError(versionId);
       }
 
+      // Validate tags before creating version (rejects tags with spaces)
+      const validatedTags = versionInit.tags ? this.validateTags(versionInit.tags) : undefined;
+
       const version: PartVersion = {
         id: versionId,
         partId,
         label: versionInit.label,
         locator: versionInit.locator,
+        tags: validatedTags,
         metadata: versionInit.metadata,
         owner: versionInit.owner,
       };

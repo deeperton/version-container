@@ -1,6 +1,11 @@
 import type { AdapterId, ProjectId } from './base.js';
 import type { PartDefinition, PartVersion, ResolvedPartVersion } from './part.js';
-import type { ProjectListResult, ProjectsQuery, ProjectSnapshot, ProjectSummary } from './project.js';
+import type {
+  ProjectListResult,
+  ProjectsQuery,
+  ProjectSnapshot,
+  ProjectSummary,
+} from './project.js';
 
 /**
  * Contract for storage adapters used by Project instances.

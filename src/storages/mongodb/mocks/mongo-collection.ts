@@ -32,14 +32,16 @@ export function createMockMongoCollection(): MockMongoCollection {
     return Promise.resolve(doc);
   });
 
-  const updateOne = vi.fn((filter: { 'project.id'?: ProjectId }, update: { $set?: ProjectSnapshot }) => {
-    const projectId = filter['project.id'];
-    const snapshot = update.$set;
-    if (projectId && snapshot) {
-      store.set(projectId, snapshot);
+  const updateOne = vi.fn(
+    (filter: { 'project.id'?: ProjectId }, update: { $set?: ProjectSnapshot }) => {
+      const projectId = filter['project.id'];
+      const snapshot = update.$set;
+      if (projectId && snapshot) {
+        store.set(projectId, snapshot);
+      }
+      return Promise.resolve({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
     }
-    return Promise.resolve({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
-  });
+  );
 
   const find = vi.fn((): { sort: ReturnType<typeof vi.fn> } => {
     const toArray = async (): Promise<ProjectSnapshot[]> => {

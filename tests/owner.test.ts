@@ -35,7 +35,9 @@ describe('Owner Functionality', () => {
       expect(snapshot.project.owner).toEqual(owner);
       expect(snapshot.project.owner?.userName).toBe('John Doe');
       expect(snapshot.project.owner?.userId).toBe('user-123' as ReturnType<typeof createUserId>);
-      expect(snapshot.project.owner?.userGroupId).toBe('team-avionics' as ReturnType<typeof createUserGroupId>);
+      expect(snapshot.project.owner?.userGroupId).toBe(
+        'team-avionics' as ReturnType<typeof createUserGroupId>
+      );
     });
 
     it('should create a project with owner but no group', async () => {

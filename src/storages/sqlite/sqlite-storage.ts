@@ -1,10 +1,5 @@
 import type { Database, RunResult } from 'better-sqlite3';
-import type {
-  ProjectId,
-  UserId,
-  UserGroupId,
-  ISO8601Timestamp,
-} from '../../models/base.js';
+import type { ProjectId, UserId, UserGroupId, ISO8601Timestamp } from '../../models/base.js';
 import type { StorageProvider } from '../../models/adapter.js';
 import type {
   ProjectListResult,
@@ -38,7 +33,7 @@ export interface SqliteStorageOptions {
 const DEFAULT_FILE_PATH = './version-container.db';
 const DEFAULT_ID = 'sqlite';
 const DEFAULT_PAGE_SIZE = 50;
-const CURRENT_ADAPTER_VERSION = 2;
+const CURRENT_ADAPTER_VERSION = 3;
 
 /**
  * Database migration definition.
@@ -58,10 +53,14 @@ const MIGRATIONS: readonly Migration[] = [
     description: 'Add owner and stats columns to snapshots table',
     up: (db: Database): void => {
       // Helper function to add column if it doesn't exist
-      const addColumnIfNotExists = (tableName: string, columnName: string, columnDef: string): void => {
-        const columns = db
-          .prepare(`PRAGMA table_info(${tableName})`)
-          .all() as Array<{ name: string }>;
+      const addColumnIfNotExists = (
+        tableName: string,
+        columnName: string,
+        columnDef: string
+      ): void => {
+        const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{
+          name: string;
+        }>;
         const columnNames = columns.map((c) => c.name);
         if (!columnNames.includes(columnName)) {
           db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDef}`);
@@ -83,9 +82,47 @@ const MIGRATIONS: readonly Migration[] = [
         }
       };
 
-      tryCreateIndex('CREATE INDEX IF NOT EXISTS idx_snapshots_owner_user_id ON snapshots(owner_user_id)');
-      tryCreateIndex('CREATE INDEX IF NOT EXISTS idx_snapshots_owner_user_group_id ON snapshots(owner_user_group_id)');
+      tryCreateIndex(
+        'CREATE INDEX IF NOT EXISTS idx_snapshots_owner_user_id ON snapshots(owner_user_id)'
+      );
+      tryCreateIndex(
+        'CREATE INDEX IF NOT EXISTS idx_snapshots_owner_user_group_id ON snapshots(owner_user_group_id)'
+      );
       db.exec('CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON snapshots(created_at DESC)');
+    },
+  },
+  {
+    version: 3,
+    description: 'Add normalized version_tags table for efficient version tag filtering',
+    up: (db: Database): void => {
+      // Create version_tags table with proper indexes
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS version_tags (
+          project_id TEXT NOT NULL,
+          version_id TEXT NOT NULL,
+          tag TEXT NOT NULL,
+          PRIMARY KEY (project_id, version_id, tag),
+          FOREIGN KEY (project_id) REFERENCES snapshots(project_id) ON DELETE CASCADE
+        ) WITHOUT ROWID;
+      `);
+
+      // Index for tag-based queries (e.g., find all versions with tag 'stable')
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_version_tags_tag
+        ON version_tags(tag);
+      `);
+
+      // Index for version-based queries (e.g., get all tags for a version)
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_version_tags_version_id
+        ON version_tags(version_id);
+      `);
+
+      // Composite index for efficient project+tag queries
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_version_tags_project_tag
+        ON version_tags(project_id, tag);
+      `);
     },
   },
 ];
@@ -129,38 +166,32 @@ export class SqliteStorageProvider implements StorageProvider {
   private initialized: boolean = false;
 
   // Prepared statements for performance
-  private loadStmt:
-    | {
-        get(projectId: string): { data: string } | undefined;
-      }
-    | null = null;
-  private saveStmt:
-    | {
-        run(
-          projectId: string,
-          name: string,
-          description: string | null,
-          createdAt: string,
-          updatedAt: string,
-          ownerUserName: string | null,
-          ownerUserId: string | null,
-          ownerUserGroupId: string | null,
-          partsCount: number,
-          combosCount: number,
-          data: string
-        ): RunResult;
-      }
-    | null = null;
-  private listStmt:
-    | {
-        all(): readonly {
-          project_id: string;
-          name: string;
-          description: string | null;
-          updated_at: string;
-        }[];
-      }
-    | null = null;
+  private loadStmt: {
+    get(projectId: string): { data: string } | undefined;
+  } | null = null;
+  private saveStmt: {
+    run(
+      projectId: string,
+      name: string,
+      description: string | null,
+      createdAt: string,
+      updatedAt: string,
+      ownerUserName: string | null,
+      ownerUserId: string | null,
+      ownerUserGroupId: string | null,
+      partsCount: number,
+      combosCount: number,
+      data: string
+    ): RunResult;
+  } | null = null;
+  private listStmt: {
+    all(): readonly {
+      project_id: string;
+      name: string;
+      description: string | null;
+      updated_at: string;
+    }[];
+  } | null = null;
 
   constructor(options: SqliteStorageOptions = {}) {
     this.id = options.id ?? DEFAULT_ID;
@@ -198,9 +229,7 @@ export class SqliteStorageProvider implements StorageProvider {
     createStateTable.run();
 
     // Get current version
-    const getVersionStmt = db.prepare(
-      'SELECT value FROM _adapter_state WHERE key = ?'
-    );
+    const getVersionStmt = db.prepare('SELECT value FROM _adapter_state WHERE key = ?');
     const result = getVersionStmt.get('version') as { value: string } | undefined;
     const currentVersion = result ? parseInt(result.value, 10) : 1;
 
@@ -255,9 +284,7 @@ export class SqliteStorageProvider implements StorageProvider {
 
     // Create indexes for owner filtering - only if columns exist
     // (for databases upgraded from version 1, columns will be added by migrations first)
-    const columns = db
-      .prepare(`PRAGMA table_info(snapshots)`)
-      .all() as Array<{ name: string }>;
+    const columns = db.prepare(`PRAGMA table_info(snapshots)`).all() as Array<{ name: string }>;
     const columnNames = columns.map((c) => c.name);
 
     if (columnNames.includes('owner_user_id')) {
@@ -330,9 +357,7 @@ export class SqliteStorageProvider implements StorageProvider {
    * @returns The snapshot or undefined if not found
    * @throws Error if JSON parsing fails
    */
-  async loadSnapshot(
-    projectId: ProjectId
-  ): Promise<ProjectSnapshot | undefined> {
+  async loadSnapshot(projectId: ProjectId): Promise<ProjectSnapshot | undefined> {
     await this.ensureInitialized();
 
     const row = this.loadStmt!.get(projectId as string);
@@ -341,12 +366,49 @@ export class SqliteStorageProvider implements StorageProvider {
     }
 
     try {
-      return JSON.parse(row.data) as ProjectSnapshot;
+      const snapshot = JSON.parse(row.data) as ProjectSnapshot;
+
+      // Load version tags from the normalized table and merge into snapshot
+      const versionTags = this.loadVersionTags(this.db!, projectId as string);
+      if (versionTags.size > 0) {
+        // Create a new snapshot with tags merged in
+        return {
+          ...snapshot,
+          versions: snapshot.versions.map((v) => ({
+            ...v,
+            tags: versionTags.get(v.id),
+          })),
+        };
+      }
+
+      return snapshot;
     } catch (error) {
       throw new Error(
         `Failed to parse snapshot data for project "${projectId}": ${error instanceof Error ? error.message : String(error)}`
       );
     }
+  }
+
+  /**
+   * Loads version tags from the normalized version_tags table.
+   * @param db - The database instance
+   * @param projectId - The project ID
+   * @returns Map of version ID to array of tags
+   */
+  private loadVersionTags(db: Database, projectId: string): Map<string, string[]> {
+    const rows = db
+      .prepare(
+        'SELECT version_id, tag FROM version_tags WHERE project_id = ? ORDER BY version_id, tag'
+      )
+      .all(projectId) as Array<{ version_id: string; tag: string }>;
+
+    const versionTags = new Map<string, string[]>();
+    for (const row of rows) {
+      const tags = versionTags.get(row.version_id) ?? [];
+      tags.push(row.tag);
+      versionTags.set(row.version_id, tags);
+    }
+    return versionTags;
   }
 
   /**
@@ -391,6 +453,52 @@ export class SqliteStorageProvider implements StorageProvider {
       throw new Error(
         `Failed to save snapshot for project "${project.id}": ${error instanceof Error ? error.message : String(error)}`
       );
+    }
+
+    // Save version tags to the normalized table
+    this.saveVersionTags(this.db!, snapshot);
+  }
+
+  /**
+   * Saves version tags to the normalized version_tags table.
+   * @param db - The database instance
+   * @param snapshot - The snapshot containing versions
+   */
+  private saveVersionTags(db: Database, snapshot: ProjectSnapshot): void {
+    const projectId = snapshot.project.id as string;
+
+    // Delete existing tags for this project
+    db.prepare('DELETE FROM version_tags WHERE project_id = ?').run(projectId);
+
+    // Collect all tags to insert
+    const allTags: Array<{ projectId: string; versionId: string; tag: string }> = [];
+    for (const version of snapshot.versions) {
+      if (version.tags) {
+        for (const tag of version.tags) {
+          allTags.push({
+            projectId,
+            versionId: version.id as string,
+            tag,
+          });
+        }
+      }
+    }
+
+    // Insert new tags using a transaction for performance
+    if (allTags.length > 0) {
+      const insertTag = db.prepare(
+        'INSERT INTO version_tags (project_id, version_id, tag) VALUES (?, ?, ?)'
+      );
+
+      const insertMany = db.transaction(
+        (tags: Array<{ projectId: string; versionId: string; tag: string }>) => {
+          for (const { projectId, versionId, tag } of tags) {
+            insertTag.run(projectId, versionId, tag);
+          }
+        }
+      );
+
+      insertMany(allTags);
     }
   }
 
@@ -482,8 +590,7 @@ export class SqliteStorageProvider implements StorageProvider {
       params.push(query.updatedBefore as string);
     }
 
-    const whereClause =
-      whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
     // Get total count
     const countSql = `SELECT COUNT(*) as count FROM snapshots ${whereClause}`;

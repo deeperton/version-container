@@ -16,14 +16,13 @@ const clock = new SystemClock();
 /**
  * Helper to get a unique temp db path for each test
  */
-const getTempDbPath = (): string => `/tmp/test-sqlite-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.db`;
+const getTempDbPath = (): string =>
+  `/tmp/test-sqlite-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.db`;
 
 /**
  * Helper to run a test with a temp db file and cleanup
  */
-const withTempDb = async (
-  testFn: (dbPath: string) => Promise<void> | void
-): Promise<void> => {
+const withTempDb = async (testFn: (dbPath: string) => Promise<void> | void): Promise<void> => {
   const dbPath = getTempDbPath();
   try {
     await testFn(dbPath);

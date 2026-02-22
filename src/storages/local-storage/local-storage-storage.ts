@@ -1,7 +1,4 @@
-import type {
-  ProjectId,
-  ISO8601Timestamp,
-} from '../../models/base.js';
+import type { ProjectId, ISO8601Timestamp } from '../../models/base.js';
 import type { StorageProvider } from '../../models/adapter.js';
 import type {
   ProjectListResult,
@@ -136,9 +133,8 @@ export class LocalStorageStorageProvider implements StorageProvider {
     }
 
     // Sort by updatedAt descending
-    filtered.sort(
-      (a: ProjectSnapshot, b: ProjectSnapshot) =>
-        b.project.updatedAt.localeCompare(a.project.updatedAt)
+    filtered.sort((a: ProjectSnapshot, b: ProjectSnapshot) =>
+      b.project.updatedAt.localeCompare(a.project.updatedAt)
     );
 
     const totalCount = filtered.length;

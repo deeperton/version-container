@@ -1,4 +1,11 @@
-import type { ISO8601Timestamp, MetadataRecord, OwnerInfo, ProjectId, UserId, UserGroupId } from './base.js';
+import type {
+  ISO8601Timestamp,
+  MetadataRecord,
+  OwnerInfo,
+  ProjectId,
+  UserId,
+  UserGroupId,
+} from './base.js';
 import type { PartDefinition, PartInit, PartVersion } from './part.js';
 import type { Lockfile, VersionCombo, VersionComboInit } from './combo.js';
 

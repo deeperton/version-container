@@ -13,6 +13,7 @@ import type {
   AdapterId,
   ComboId,
   PartId,
+  PartVersionId,
   ProjectSnapshot,
   ProjectId,
   ISO8601Timestamp,
@@ -395,7 +396,9 @@ describe('SqliteStorageProvider', () => {
       const loaded = await provider.loadSnapshot('unicode' as ProjectId);
 
       expect(loaded?.project.name).toBe('项目 名称 🚀');
-      expect(loaded?.project.description).toBe('Description with emoji 🎉 and unicode characters café');
+      expect(loaded?.project.description).toBe(
+        'Description with emoji 🎉 and unicode characters café'
+      );
     });
 
     it('should handle multiple sequential saves and loads', async () => {
@@ -424,7 +427,11 @@ describe('SqliteStorageProvider', () => {
       const id = 'upsert-test' as ProjectId;
 
       // First save
-      const v1 = createTestSnapshot(id, 'Version 1', '2024-01-01T00:00:00.000Z' as ISO8601Timestamp);
+      const v1 = createTestSnapshot(
+        id,
+        'Version 1',
+        '2024-01-01T00:00:00.000Z' as ISO8601Timestamp
+      );
       await provider.saveSnapshot(v1);
 
       // Second save (update)
@@ -519,7 +526,7 @@ describe('SqliteStorageProvider', () => {
         .get('version') as { value: string } | undefined;
 
       expect(state).toBeDefined();
-      expect(state?.value).toBe('2'); // Current version
+      expect(state?.value).toBe('3'); // Current version
 
       await p.close();
       externalDb.close();
@@ -546,9 +553,9 @@ describe('SqliteStorageProvider', () => {
       const p = new SqliteStorageProvider({ db: externalDb });
 
       // Verify new columns exist
-      const columns = externalDb
-        .prepare("PRAGMA table_info(snapshots)")
-        .all() as Array<{ name: string }>;
+      const columns = externalDb.prepare('PRAGMA table_info(snapshots)').all() as Array<{
+        name: string;
+      }>;
 
       const columnNames = columns.map((c) => c.name);
       expect(columnNames).toContain('owner_user_name');
@@ -561,7 +568,7 @@ describe('SqliteStorageProvider', () => {
       const state = externalDb
         .prepare('SELECT value FROM _adapter_state WHERE key = ?')
         .get('version') as { value: string };
-      expect(state?.value).toBe('2');
+      expect(state?.value).toBe('3');
 
       await p.close();
       externalDb.close();
@@ -599,11 +606,13 @@ describe('SqliteStorageProvider', () => {
         .prepare(
           'SELECT owner_user_name, owner_user_id, owner_user_group_id FROM snapshots WHERE project_id = ?'
         )
-        .get('owner-test') as {
-        owner_user_name: string | null;
-        owner_user_id: string | null;
-        owner_user_group_id: string | null;
-      } | undefined;
+        .get('owner-test') as
+        | {
+            owner_user_name: string | null;
+            owner_user_id: string | null;
+            owner_user_group_id: string | null;
+          }
+        | undefined;
 
       expect(row?.owner_user_name).toBe('Test User');
       expect(row?.owner_user_id).toBe('user-123');
@@ -656,16 +665,86 @@ describe('SqliteStorageProvider', () => {
 
       const row = externalDb
         .prepare('SELECT parts_count, combos_count FROM snapshots WHERE project_id = ?')
-        .get('stats-test') as {
-        parts_count: number;
-        combos_count: number;
-      } | undefined;
+        .get('stats-test') as
+        | {
+            parts_count: number;
+            combos_count: number;
+          }
+        | undefined;
 
       expect(row?.parts_count).toBe(3);
       expect(row?.combos_count).toBe(2);
 
       await p.close();
       externalDb.close();
+    });
+
+    it('should run migration v3 to create version_tags table', async () => {
+      const externalDb = new Database(':memory:') as DbType;
+      const p = new SqliteStorageProvider({ db: externalDb });
+
+      // Trigger initialization
+      await p.saveSnapshot(createTestSnapshot('test', 'Test'));
+
+      // Verify version_tags table exists
+      const tables = externalDb
+        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+        .all() as Array<{ name: string }>;
+      const tableNames = tables.map((t) => t.name);
+      expect(tableNames).toContain('version_tags');
+
+      // Verify indexes exist
+      const indexes = externalDb
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_version_tags%'"
+        )
+        .all() as Array<{ name: string }>;
+      expect(indexes.length).toBeGreaterThanOrEqual(3);
+
+      await p.close();
+      externalDb.close();
+    });
+
+    it('should persist version tags across save/load', async () => {
+      const snapshot: ProjectSnapshot = {
+        schemaVersion: 1,
+        project: {
+          id: 'tags-test' as ProjectId,
+          name: 'Tags Test',
+          description: 'Testing version tags',
+          createdAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+          updatedAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+        },
+        parts: [],
+        versions: [
+          {
+            id: createPartVersionId('v1'),
+            partId: createPartId('p1'),
+            locator: { uri: 'npm://pkg@1.0.0' },
+            tags: ['stable', 'production'],
+          },
+          {
+            id: createPartVersionId('v2'),
+            partId: createPartId('p1'),
+            locator: { uri: 'npm://pkg@2.0.0' },
+            tags: ['beta'],
+          },
+          {
+            id: createPartVersionId('v3'),
+            partId: createPartId('p1'),
+            locator: { uri: 'npm://pkg@3.0.0' },
+            // No tags
+          },
+        ],
+        combos: [],
+      };
+
+      await provider.saveSnapshot(snapshot);
+      const loaded = await provider.loadSnapshot(snapshot.project.id);
+
+      expect(loaded?.versions[0]?.tags).toEqual(['production', 'stable']);
+      expect(loaded?.versions[1]?.tags).toEqual(['beta']);
+      expect(loaded?.versions[2]?.tags).toBeUndefined();
     });
   });
 
@@ -884,7 +963,8 @@ describe('SqliteStorageProvider', () => {
 
         // Verify indexed columns contain correct data
         const row = directDb
-          .prepare(`
+          .prepare(
+            `
             SELECT
               project_id, name, description,
               created_at, updated_at,
@@ -892,19 +972,22 @@ describe('SqliteStorageProvider', () => {
               parts_count, combos_count
             FROM snapshots
             WHERE project_id = ?
-          `)
-          .get(handle.projectId) as {
-          project_id: string;
-          name: string;
-          description: string | null;
-          created_at: string;
-          updated_at: string;
-          owner_user_name: string | null;
-          owner_user_id: string | null;
-          owner_user_group_id: string | null;
-          parts_count: number;
-          combos_count: number;
-        } | undefined;
+          `
+          )
+          .get(handle.projectId) as
+          | {
+              project_id: string;
+              name: string;
+              description: string | null;
+              created_at: string;
+              updated_at: string;
+              owner_user_name: string | null;
+              owner_user_id: string | null;
+              owner_user_group_id: string | null;
+              parts_count: number;
+              combos_count: number;
+            }
+          | undefined;
 
         expect(row).toBeDefined();
         expect(row?.project_id).toBe(handle.projectId);
@@ -972,7 +1055,7 @@ describe('SqliteStorageProvider', () => {
           .prepare('SELECT value FROM _adapter_state WHERE key = ?')
           .get('version') as { value: string } | undefined;
         expect(stateRow).toBeDefined();
-        expect(stateRow?.value).toBe('2'); // Current adapter version
+        expect(stateRow?.value).toBe('3'); // Current adapter version
 
         directDb.close();
       } finally {
@@ -1019,14 +1102,14 @@ describe('SqliteStorageProvider', () => {
         // Verify directly from database
         const directDb = new Database(testDbPath) as DbType;
 
-        const countRow = directDb
-          .prepare('SELECT COUNT(*) as count FROM snapshots')
-          .get() as { count: number };
+        const countRow = directDb.prepare('SELECT COUNT(*) as count FROM snapshots').get() as {
+          count: number;
+        };
         expect(countRow.count).toBe(2);
 
-        const names = directDb
-          .prepare('SELECT name FROM snapshots ORDER BY name')
-          .all() as Array<{ name: string }>;
+        const names = directDb.prepare('SELECT name FROM snapshots ORDER BY name').all() as Array<{
+          name: string;
+        }>;
         expect(names.map((n) => n.name)).toEqual(['Project Alpha', 'Project Beta']);
 
         // Verify parts_count for each project
