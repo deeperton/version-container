@@ -1,4 +1,11 @@
-import type { AdapterId, MetadataRecord, OwnerInfo, PartId, PartVersionId } from './base.js';
+import type {
+  AdapterId,
+  MetadataRecord,
+  OwnerInfo,
+  PartId,
+  PartVersionId,
+  TagId,
+} from './base.js';
 
 /**
  * Metadata key for soft delete timestamp on parts and versions.
@@ -31,7 +38,7 @@ export interface PartInit {
   readonly name: string;
   readonly description?: string;
   readonly adapterId: AdapterId;
-  readonly tags?: readonly string[];
+  readonly tagIds?: readonly TagId[];
   readonly metadata?: MetadataRecord;
   readonly owner?: OwnerInfo;
   readonly versions?: readonly PartVersionInit[];
@@ -42,6 +49,7 @@ export interface PartInit {
  */
 export interface PartDefinition extends Omit<PartInit, 'id' | 'versions'> {
   readonly id: PartId;
+  readonly tagIds?: readonly TagId[];
   readonly owner?: OwnerInfo;
 }
 
@@ -52,7 +60,7 @@ export interface PartVersionInit {
   readonly id?: PartVersionId;
   readonly label?: string;
   readonly locator: VersionLocator;
-  readonly tags?: readonly string[];
+  readonly tagIds?: readonly TagId[];
   readonly metadata?: MetadataRecord;
   readonly owner?: OwnerInfo;
 }
@@ -63,7 +71,7 @@ export interface PartVersionInit {
 export interface PartVersion extends Omit<PartVersionInit, 'id'> {
   readonly id: PartVersionId;
   readonly partId: PartId;
-  readonly tags?: readonly string[];
+  readonly tagIds?: readonly TagId[];
   readonly owner?: OwnerInfo;
 }
 

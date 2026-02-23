@@ -291,25 +291,189 @@ await registry.updatePartVersion(handle.projectId, newVersionId, (current) => ({
 unsubscribe();
 ```
 
-Available events today include `project:created`, `project:loaded`, `project:updated`, `project:closed`, `part:added`, `part:updated`, `part:removed`, `version:added`, `version:updated`, `version:removed`, `combo:added`, `combo:updated`, `combo:removed`, and `partsOrder:updated`. Future middleware hooks will piggy-back on the same dispatcher.
+Available events today include `project:created`, `project:loaded`, `project:updated`, `project:closed`, `part:added`, `part:updated`, `part:removed`, `version:added`, `version:updated`, `version:removed`, `combo:added`, `combo:updated`, `combo:removed`, `partsOrder:updated`, `tag:created`, `tag:renamed`, and `tag:deleted`. Future middleware hooks will piggy-back on the same dispatcher.
 
-### 11. Query and filter parts, versions, and combos
+### 11. Tag management for parts and versions
+
+The library provides a centralized tag management system with ID-based tags. Tags are scoped per project and typed (`part` or `version`), allowing the same tag name to exist in both domains.
+
+#### Creating tags
+
+Tags must be created before they can be assigned to parts or versions:
+
+```ts
+import { createTagId } from 'version-container';
+
+// Create a version tag
+const stableTag = await handle.createTag({
+  name: 'stable',
+  type: 'version',
+  description: 'Production-ready versions',
+});
+
+// Create a part tag
+const criticalTag = await handle.createTag({
+  name: 'critical',
+  type: 'part',
+  description: 'Critical system components',
+});
+```
+
+Tags have the following properties:
+- `id`: Unique tag identifier (auto-generated or provided)
+- `name`: Human-readable tag name (case-sensitive, no spaces allowed)
+- `type`: Either `'part'` or `'version'`
+- `description`: Optional description
+- `metadata`: Optional metadata
+- `createdAt`: ISO timestamp of creation
+
+#### Assigning tags to parts and versions
+
+Once created, tags can be assigned to parts and versions using their IDs:
+
+```ts
+// Assign tags when creating a version
+await registry.addPartVersion(handle.projectId, enginePartId, {
+  id: createPartVersionId('engine-v1'),
+  label: '1.0.0',
+  locator: { uri: 'memory://engine@1.0.0' },
+  tagIds: [stableTag.id],
+});
+
+// Add tags to an existing version
+await registry.addVersionTagIds(handle.projectId, engineV1Id, [
+  stableTag.id,
+  createTagId('production'),
+]);
+
+// Remove tags from a version
+await registry.removeVersionTagIds(handle.projectId, engineV1Id, [
+  stableTag.id,
+]);
+
+// Replace all tags on a version
+await registry.setVersionTagIds(handle.projectId, engineV1Id, [
+  stableTag.id,
+]);
+```
+
+The same operations are available for parts:
+- `addPartTagIds(projectId, partId, tagIds)` - Add tags to a part
+- `removePartTagIds(projectId, partId, tagIds)` - Remove tags from a part
+- `setPartTagIds(projectId, partId, tagIds)` - Replace all tags on a part
+
+#### Querying by tags
+
+Find parts and versions using tag names (the library resolves names to IDs internally):
+
+```ts
+// Find versions with specific tags (OR logic - any match)
+const stableVersions = await registry.findVersions(handle.projectId, {
+  tagsAny: ['stable', 'production'],
+});
+
+// Find versions with all specified tags (AND logic)
+const stableProductionVersions = await registry.findVersions(handle.projectId, {
+  tagsAll: ['stable', 'tested'],
+});
+
+// Combine with other filters
+const recentStable = await registry.findVersions(handle.projectId, {
+  partId: enginePartId,
+  tagsAny: ['stable'],
+});
+```
+
+#### Resolving tag names
+
+Get the actual tag names for a part or version:
+
+```ts
+// Get tag IDs for a version
+const tagIds = await registry.getVersionTagIds(handle.projectId, engineV1Id);
+console.log(tagIds); // [TagId, TagId, ...]
+
+// Get resolved tag names for a version
+const tagNames = await registry.getVersionTagNames(handle.projectId, engineV1Id);
+console.log(tagNames); // ['stable', 'production', ...]
+
+// Same for parts
+const partTagNames = await registry.getPartTagNames(handle.projectId, enginePartId);
+```
+
+#### Tag statistics
+
+Get usage statistics for version tags:
+
+```ts
+// Get full statistics map (tag name -> count)
+const stats = await handle.getVersionTagStats();
+console.log(stats.get('stable')); // 5
+console.log(stats.get('beta')); // 2
+
+// Get top N tags by usage
+const topTags = await handle.getTopVersionTags(5);
+console.log(topTags); // [['stable', 5], ['production', 3], ...]
+```
+
+#### Renaming and deleting tags
+
+Rename tags atomically—all references update automatically since they use immutable IDs:
+
+```ts
+// Rename a tag (all parts/versions using it reflect the new name)
+await handle.renameTag(stableTag.id, 'release');
+
+// Delete a tag (removes from all parts/versions that reference it)
+await handle.deleteTag(criticalTag.id);
+```
+
+#### Listing and finding tags
+
+```ts
+// List all tags in the project
+const allTags = handle.listTags();
+
+// List tags filtered by type
+const versionTags = handle.listTags('version');
+const partTags = handle.listTags('part');
+
+// Find a tag by name and type
+const tag = handle.findTagByName('stable', 'version');
+console.log(tag?.id); // TagId
+
+// Get a tag by ID
+const tagById = handle.getTagById(stableTag.id);
+```
+
+#### Tag validation rules
+
+- Tag names cannot contain spaces
+- Tag names are case-sensitive (`URL` ≠ `url`)
+- Tag names can contain special characters (`v1.0.0`, `release@final`, etc.)
+- Duplicate tag names are not allowed within the same type (but `stable` can exist for both parts and versions)
+
+### 12. Query and filter parts, versions, and combos
 
 The library provides synchronous query methods on `ProjectHandle` (and async delegations on `ProjectRegistry`) for finding entities by various criteria. Queries operate on the in-memory snapshot for fast lookups.
 
 ```ts
-// Find parts by adapter, tags, or metadata
+// Find parts by adapter, tag names, or metadata
 const gitParts = await registry.findParts(handle.projectId, {
   adapterId: createAdapterId('git'),
 });
 
 const taggedParts = await registry.findParts(handle.projectId, {
-  tags: ['critical', 'production'],
+  tagsAny: ['critical', 'production'],
 });
 
-// Find versions by part, label, or metadata
+// Find versions by part, label, tag names, or metadata
 const engineVersions = await registry.findVersions(handle.projectId, {
   partId: enginePartId,
+});
+
+const stableVersions = await registry.findVersions(handle.projectId, {
+  tagsAny: ['stable'],
 });
 
 // Find combos that reference a specific part or version
@@ -349,12 +513,14 @@ const comboIds = await registry.getCombosByVersionId(handle.projectId, engineV1I
 
 Filter behavior:
 - **adapterId**: Exact match
-- **tags**: Any match (returns entities that have at least one of the specified tags)
+- **tagsAny**: Tag name OR match (returns entities with at least one of the specified tag names)
+- **tagsAll**: Tag name AND match (returns entities with all specified tag names)
 - **metadata**: Subset match (all filter key/values must exist in the target)
 - **partId/versionId**: Exact match on the respective field
+- **label**: Exact string match on version label
 - **includeDeleted**: When true, includes soft-deleted items (default: false)
 
-### 12. Error handling
+### 13. Error handling
 
 All library errors extend from `VersionContainerError`, enabling type-safe error handling:
 
@@ -406,7 +572,7 @@ try {
 
 All errors include a `code` property for programmatic handling and an `entityId` property with the relevant identifier.
 
-### 13. Storage Providers
+### 14. Storage Providers
 
 The library includes built-in storage providers for different environments:
 
@@ -614,7 +780,7 @@ const storage = createStorageProvider('indexed-db');
 | `BuiltinStorageType.MONGODB` | `'mongodb'` | `MongoDbStorageProvider` |
 | `BuiltinStorageType.SQLITE` | `'sqlite'` | `SqliteStorageProvider` |
 
-### 14. Track ownership for projects, parts, versions, and combos
+### 15. Track ownership for projects, parts, versions, and combos
 
 The library supports tracking ownership information for all domain entities. This is useful for audit trails, access control, and reporting.
 
@@ -715,7 +881,7 @@ const summary = await registry.getPartSummary(projectId, partId);
 console.log(summary?.owner?.userName); // "John Doe"
 ```
 
-### 15. Project access control
+### 16. Project access control
 
 When a project has owner information, the library enforces access control. Users must provide their user ID when opening or loading projects that have an owner.
 
@@ -782,7 +948,7 @@ try {
 
 **Important**: Once a project is successfully loaded with proper credentials, subsequent operations on that registry instance work without re-specifying the user ID. The library tracks which user authenticated each project for internal operations.
 
-### 16. List projects with filtering and pagination
+### 17. List projects with filtering and pagination
 
 The library provides a `listProjects()` API for querying projects across storage with support for filtering, sorting, and pagination. This is useful for building project browsers, dashboards, and admin interfaces.
 
@@ -949,9 +1115,9 @@ Middleware hooks are not yet implemented, but TODO markers in the code indicate 
 
 Key exports available today:
 
-- Domain models – `ProjectInit`, `PartDefinition`, `VersionCombo`, `VersionComboInit`, filter types (`PartFilter`, `VersionFilter`, `ComboFilter`, `ProjectsQuery`), summary types (`PartSummary`, `VersionSummary`, `ComboSummary`, `ProjectListSummary`, `ProjectListResult`), owner types (`OwnerInfo`, `UserId`, `UserGroupId`), and related branded ID types (see `src/models`).
-- Error types – `VersionContainerError` (base class) and 15 specific error classes (`PartNotFoundError`, `VersionNotFoundError`, etc.) for type-safe error handling.
-- Utilities – `createPartId`, `createPartVersionId`, `createComboId`, `createAdapterId`, `createUserId`, `createUserGroupId`, `cloneValue`, and the `AsyncMutex`.
+- Domain models – `ProjectInit`, `PartDefinition`, `PartVersion`, `VersionCombo`, `VersionComboInit`, filter types (`PartFilter`, `VersionFilter`, `ComboFilter`, `ProjectsQuery`), summary types (`PartSummary`, `VersionSummary`, `ComboSummary`, `ProjectListSummary`, `ProjectListResult`), owner types (`OwnerInfo`, `UserId`, `UserGroupId`), tag types (`TagInit`, `TagDefinition`, `TagType`, `TagId`), and related branded ID types (see `src/models`).
+- Error types – `VersionContainerError` (base class) and 18+ specific error classes (`PartNotFoundError`, `VersionNotFoundError`, etc.) for type-safe error handling.
+- Utilities – `createPartId`, `createPartVersionId`, `createComboId`, `createAdapterId`, `createUserId`, `createUserGroupId`, `createTagId`, `cloneValue`, and the `AsyncMutex`.
 - Runtime services – `ProjectRegistry`, `ProjectHandle`, `ProjectEventDispatcher`, `buildProjectSnapshot`, plus a `SystemClock` you can replace with a deterministic clock in tests.
 - Storage providers – `InMemoryStorageProvider`, `LocalStorageStorageProvider` for browser persistence, `SqliteStorageProvider` and `MongoDbStorageProvider` for server persistence.
 - Storage registry – `registerBuiltinStorageProviders`, `createStorageProvider`, `registerStorageProvider`, `BuiltinStorageType` for runtime storage selection.
@@ -996,6 +1162,25 @@ Key exports available today:
 | `getVersionsByPartId(projectId, partId)` | Get all version IDs for a part |
 | `getCombosByPartId(projectId, partId)` | Get all combo IDs referencing a part |
 | `getCombosByVersionId(projectId, versionId)` | Get all combo IDs referencing a version |
+| **Tag Management** | |
+| `createTag(projectId, tagInit)` | Create a new tag |
+| `renameTag(projectId, tagId, name)` | Rename a tag |
+| `deleteTag(projectId, tagId)` | Delete a tag |
+| `getTagById(projectId, tagId)` | Get tag by ID |
+| `findTagByName(projectId, name, type)` | Find tag by name and type |
+| `listTags(projectId, type?)` | List all tags, optionally filtered by type |
+| `addPartTagIds(projectId, partId, tagIds)` | Add tag IDs to a part |
+| `removePartTagIds(projectId, partId, tagIds)` | Remove tag IDs from a part |
+| `setPartTagIds(projectId, partId, tagIds)` | Set all tag IDs on a part |
+| `getPartTagIds(projectId, partId)` | Get tag IDs for a part |
+| `getPartTagNames(projectId, partId)` | Get resolved tag names for a part |
+| `addVersionTagIds(projectId, versionId, tagIds)` | Add tag IDs to a version |
+| `removeVersionTagIds(projectId, versionId, tagIds)` | Remove tag IDs from a version |
+| `setVersionTagIds(projectId, versionId, tagIds)` | Set all tag IDs on a version |
+| `getVersionTagIds(projectId, versionId)` | Get tag IDs for a version |
+| `getVersionTagNames(projectId, versionId)` | Get resolved tag names for a version |
+| `getVersionTagStats(projectId)` | Get version tag usage statistics |
+| `getTopVersionTags(projectId, limit?)` | Get top N version tags by usage |
 | **Utility** | |
 | `listOpenProjects()` | List open projects |
 | `listProjects(query?)` | List all projects with filtering and pagination |
@@ -1009,10 +1194,10 @@ Refer to the source modules for comprehensive type definitions and JSDoc comment
 /src
   /lib                # Runtime services, utilities, and clocks
   /models             # Domain model interfaces and README
-  /storages           # Storage providers (in-memory MVP)
+  /storages           # Storage providers (in-memory, local-storage, sqlite, mongodb)
   /index.ts           # Public barrel exports
 
-/tests                # Legacy example-based tests
+/tests                # Unit tests (mirrors src structure)
 ```
 
 Each module ships with colocated unit tests (`*.test.ts`) and, where applicable, fixture/mocks directories.

@@ -17,6 +17,7 @@ const createMockProjectSnapshot = (id: string): ProjectSnapshot => ({
   versions: [],
   combos: [],
   locks: [],
+  tags: [],
 });
 
 describe('ProjectEventDispatcher', () => {

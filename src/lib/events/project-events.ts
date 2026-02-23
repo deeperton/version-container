@@ -1,6 +1,7 @@
 import type { PartDefinition, PartVersion } from '../../models/part.js';
 import type { ProjectSnapshot } from '../../models/project.js';
-import type { ComboId, PartId, PartVersionId, ProjectId } from '../../models/base.js';
+import type { TagDefinition } from '../../models/tag.js';
+import type { ComboId, PartId, PartVersionId, ProjectId, TagId } from '../../models/base.js';
 import type { VersionCombo } from '../../models/combo.js';
 
 /**
@@ -70,6 +71,24 @@ export interface ProjectEventMap {
     readonly projectId: ProjectId;
     readonly partsOrder: readonly PartId[];
     readonly previousOrder: readonly PartId[];
+    readonly snapshot: ProjectSnapshot;
+  };
+  readonly 'tag:created': {
+    readonly projectId: ProjectId;
+    readonly tag: TagDefinition;
+    readonly snapshot: ProjectSnapshot;
+  };
+  readonly 'tag:renamed': {
+    readonly projectId: ProjectId;
+    readonly tagId: TagId;
+    readonly previousName: string;
+    readonly tag: TagDefinition;
+    readonly snapshot: ProjectSnapshot;
+  };
+  readonly 'tag:deleted': {
+    readonly projectId: ProjectId;
+    readonly tagId: TagId;
+    readonly tag: TagDefinition;
     readonly snapshot: ProjectSnapshot;
   };
 }

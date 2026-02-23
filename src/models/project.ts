@@ -7,6 +7,7 @@ import type {
   UserGroupId,
 } from './base.js';
 import type { PartDefinition, PartInit, PartVersion } from './part.js';
+import type { TagDefinition } from './tag.js';
 import type { Lockfile, VersionCombo, VersionComboInit } from './combo.js';
 
 /**
@@ -47,6 +48,7 @@ export interface ProjectData {
   readonly versions: readonly PartVersion[];
   readonly combos: readonly VersionCombo[];
   readonly locks?: readonly Lockfile[];
+  readonly tags: readonly TagDefinition[];
 }
 
 /**

@@ -65,6 +65,7 @@ const baseSnapshot: ProjectSnapshot = {
   versions: baseVersions,
   combos: baseCombos,
   locks: [],
+  tags: [],
 };
 
 export type SnapshotOverrides = Partial<Omit<ProjectSnapshot, 'project'>> & {
@@ -84,5 +85,6 @@ export const createProjectSnapshot = (overrides: SnapshotOverrides = {}): Projec
     versions: overrides.versions ?? snapshot.versions,
     combos: overrides.combos ?? snapshot.combos,
     locks: overrides.locks ?? snapshot.locks,
+    tags: overrides.tags ?? snapshot.tags,
   };
 };

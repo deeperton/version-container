@@ -4,6 +4,7 @@ import type {
   PartId,
   PartVersionId,
   ProjectId,
+  TagId,
   UserId,
   UserGroupId,
 } from '../models/base.js';
@@ -84,3 +85,9 @@ export const createUserId = (value?: string): UserId => createId<UserId>(value, 
  */
 export const createUserGroupId = (value?: string): UserGroupId =>
   createId<UserGroupId>(value, randomUUID);
+
+/**
+ * Generates or brands a `TagId`.
+ * Used for identifying tags within a project.
+ */
+export const createTagId = (value?: string): TagId => createId<TagId>(value, randomUUID);

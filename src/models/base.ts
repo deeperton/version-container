@@ -14,10 +14,17 @@ export type PartId = Brand<string, 'PartId'>;
 export type PartVersionId = Brand<string, 'PartVersionId'>;
 export type ComboId = Brand<string, 'ComboId'>;
 export type AdapterId = Brand<string, 'AdapterId'>;
+export type TagId = Brand<string, 'TagId'>;
 export type LockfileDigest = Brand<string, 'LockfileDigest'>;
 export type ISO8601Timestamp = Brand<string, 'ISO8601Timestamp'>;
 export type UserId = Brand<string, 'UserId'>;
 export type UserGroupId = Brand<string, 'UserGroupId'>;
+
+/**
+ * Tag type distinguishes between part tags and version tags.
+ * Tags are scoped by type, allowing the same name for both parts and versions.
+ */
+export type TagType = 'part' | 'version';
 
 /**
  * Owner information for domain entities.

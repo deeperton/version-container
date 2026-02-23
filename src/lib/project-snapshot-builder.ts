@@ -70,7 +70,7 @@ export const buildProjectSnapshot = (
       name: partInit.name,
       description: partInit.description,
       adapterId: partInit.adapterId,
-      tags: partInit.tags,
+      tagIds: partInit.tagIds,
       metadata: partInit.metadata,
       owner: partInit.owner,
     };
@@ -87,6 +87,7 @@ export const buildProjectSnapshot = (
         partId,
         label: versionInit.label,
         locator: versionInit.locator,
+        tagIds: versionInit.tagIds,
         metadata: versionInit.metadata,
         owner: versionInit.owner,
       };
@@ -152,5 +153,6 @@ export const buildProjectSnapshot = (
     versions: sortById(versions),
     combos: sortById(combos),
     locks: [],
+    tags: [], // Empty tags array for new snapshots
   };
 };

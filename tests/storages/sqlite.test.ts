@@ -13,13 +13,14 @@ import type {
   AdapterId,
   ComboId,
   PartId,
-  PartVersionId,
   ProjectSnapshot,
   ProjectId,
   ISO8601Timestamp,
   UserId,
   UserGroupId,
+  TagId,
 } from '../../src/models/index.js';
+import type { TagDefinition } from '../../src/models/tag.js';
 
 /**
  * Helper to create a test snapshot.
@@ -41,6 +42,7 @@ const createTestSnapshot = (
   versions: [],
   combos: [],
   locks: [],
+  tags: [],
 });
 
 describe('SqliteStorageProvider', () => {
@@ -168,6 +170,7 @@ describe('SqliteStorageProvider', () => {
             createdAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
           },
         ],
+        tags: [],
       };
 
       await provider.saveSnapshot(snapshot);
@@ -345,6 +348,7 @@ describe('SqliteStorageProvider', () => {
         versions: [],
         combos: [],
         locks: [],
+        tags: [],
       };
 
       await provider.saveSnapshot(snapshot);
@@ -526,7 +530,7 @@ describe('SqliteStorageProvider', () => {
         .get('version') as { value: string } | undefined;
 
       expect(state).toBeDefined();
-      expect(state?.value).toBe('3'); // Current version
+      expect(state?.value).toBe('4'); // Current version
 
       await p.close();
       externalDb.close();
@@ -568,7 +572,7 @@ describe('SqliteStorageProvider', () => {
       const state = externalDb
         .prepare('SELECT value FROM _adapter_state WHERE key = ?')
         .get('version') as { value: string };
-      expect(state?.value).toBe('3');
+      expect(state?.value).toBe('4');
 
       await p.close();
       externalDb.close();
@@ -706,6 +710,31 @@ describe('SqliteStorageProvider', () => {
     });
 
     it('should persist version tags across save/load', async () => {
+      const stableTagId = 'tag-stable' as TagId;
+      const productionTagId = 'tag-production' as TagId;
+      const betaTagId = 'tag-beta' as TagId;
+
+      const tags: TagDefinition[] = [
+        {
+          id: stableTagId,
+          name: 'stable',
+          type: 'version',
+          createdAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+        },
+        {
+          id: productionTagId,
+          name: 'production',
+          type: 'version',
+          createdAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+        },
+        {
+          id: betaTagId,
+          name: 'beta',
+          type: 'version',
+          createdAt: '2024-01-01T00:00:00.000Z' as ISO8601Timestamp,
+        },
+      ];
+
       const snapshot: ProjectSnapshot = {
         schemaVersion: 1,
         project: {
@@ -721,13 +750,13 @@ describe('SqliteStorageProvider', () => {
             id: createPartVersionId('v1'),
             partId: createPartId('p1'),
             locator: { uri: 'npm://pkg@1.0.0' },
-            tags: ['stable', 'production'],
+            tagIds: [stableTagId, productionTagId],
           },
           {
             id: createPartVersionId('v2'),
             partId: createPartId('p1'),
             locator: { uri: 'npm://pkg@2.0.0' },
-            tags: ['beta'],
+            tagIds: [betaTagId],
           },
           {
             id: createPartVersionId('v3'),
@@ -737,14 +766,24 @@ describe('SqliteStorageProvider', () => {
           },
         ],
         combos: [],
+        locks: [],
+        tags,
       };
 
       await provider.saveSnapshot(snapshot);
       const loaded = await provider.loadSnapshot(snapshot.project.id);
 
-      expect(loaded?.versions[0]?.tags).toEqual(['production', 'stable']);
-      expect(loaded?.versions[1]?.tags).toEqual(['beta']);
-      expect(loaded?.versions[2]?.tags).toBeUndefined();
+      // Check that tags were persisted
+      expect(loaded?.tags).toHaveLength(3);
+      expect(loaded?.tags.find((t) => t.name === 'stable')?.id).toBe(stableTagId);
+      expect(loaded?.tags.find((t) => t.name === 'production')?.id).toBe(productionTagId);
+      expect(loaded?.tags.find((t) => t.name === 'beta')?.id).toBe(betaTagId);
+
+      // Check that version tag IDs were persisted
+      expect(loaded?.versions[0]?.tagIds).toContain(stableTagId);
+      expect(loaded?.versions[0]?.tagIds).toContain(productionTagId);
+      expect(loaded?.versions[1]?.tagIds).toContain(betaTagId);
+      expect(loaded?.versions[2]?.tagIds).toBeUndefined();
     });
   });
 
@@ -903,11 +942,22 @@ describe('SqliteStorageProvider', () => {
         );
 
         // Add parts with different adapters
+        const frontendTagId = 'tag-frontend' as TagId;
+        const reactTagId = 'tag-react' as TagId;
+        const backendTagId = 'tag-backend' as TagId;
+        const apiTagId = 'tag-api' as TagId;
+
+        // First create the tags
+        await handle.createTag({ id: frontendTagId, name: 'frontend', type: 'part' });
+        await handle.createTag({ id: reactTagId, name: 'react', type: 'part' });
+        await handle.createTag({ id: backendTagId, name: 'backend', type: 'part' });
+        await handle.createTag({ id: apiTagId, name: 'api', type: 'part' });
+
         await registry.addPart(handle.projectId, {
           id: createPartId('ui-kit'),
           name: 'UI Kit',
           adapterId: createAdapterId('npm'),
-          tags: ['frontend', 'react'],
+          tagIds: [frontendTagId, reactTagId],
           metadata: { language: 'TypeScript' },
           owner: { userName: 'Test User', userId: ownerUserId },
         });
@@ -916,7 +966,7 @@ describe('SqliteStorageProvider', () => {
           id: createPartId('backend-api'),
           name: 'Backend API',
           adapterId: createAdapterId('git'),
-          tags: ['backend', 'api'],
+          tagIds: [backendTagId, apiTagId],
           metadata: { language: 'Go' },
         });
 
@@ -1019,7 +1069,8 @@ describe('SqliteStorageProvider', () => {
         expect(uiKitPart).toBeDefined();
         expect(uiKitPart?.name).toBe('UI Kit');
         expect(uiKitPart?.adapterId).toBe('npm');
-        expect(uiKitPart?.tags).toEqual(['frontend', 'react']);
+        expect(uiKitPart?.tagIds).toContain(frontendTagId);
+        expect(uiKitPart?.tagIds).toContain(reactTagId);
         expect(uiKitPart?.metadata).toEqual({ language: 'TypeScript' });
         expect(uiKitPart?.owner?.userId).toBe(ownerUserId);
 
@@ -1027,7 +1078,8 @@ describe('SqliteStorageProvider', () => {
         expect(backendPart).toBeDefined();
         expect(backendPart?.name).toBe('Backend API');
         expect(backendPart?.adapterId).toBe('git');
-        expect(backendPart?.tags).toEqual(['backend', 'api']);
+        expect(backendPart?.tagIds).toContain(backendTagId);
+        expect(backendPart?.tagIds).toContain(apiTagId);
         expect(backendPart?.metadata).toEqual({ language: 'Go' });
 
         // Verify versions
@@ -1055,7 +1107,7 @@ describe('SqliteStorageProvider', () => {
           .prepare('SELECT value FROM _adapter_state WHERE key = ?')
           .get('version') as { value: string } | undefined;
         expect(stateRow).toBeDefined();
-        expect(stateRow?.value).toBe('3'); // Current adapter version
+        expect(stateRow?.value).toBe('4'); // Current adapter version
 
         directDb.close();
       } finally {

@@ -1,5 +1,12 @@
 import type { Database, RunResult } from 'better-sqlite3';
-import type { ProjectId, UserId, UserGroupId, ISO8601Timestamp } from '../../models/base.js';
+import type {
+  ProjectId,
+  UserId,
+  UserGroupId,
+  ISO8601Timestamp,
+  TagType,
+  TagId,
+} from '../../models/base.js';
 import type { StorageProvider } from '../../models/adapter.js';
 import type {
   ProjectListResult,
@@ -8,6 +15,7 @@ import type {
   ProjectSnapshot,
   ProjectSummary,
 } from '../../models/project.js';
+import type { TagDefinition } from '../../models/tag.js';
 
 /**
  * Options for configuring the SQLite storage provider.
@@ -33,7 +41,7 @@ export interface SqliteStorageOptions {
 const DEFAULT_FILE_PATH = './version-container.db';
 const DEFAULT_ID = 'sqlite';
 const DEFAULT_PAGE_SIZE = 50;
-const CURRENT_ADAPTER_VERSION = 3;
+const CURRENT_ADAPTER_VERSION = 4;
 
 /**
  * Database migration definition.
@@ -122,6 +130,69 @@ const MIGRATIONS: readonly Migration[] = [
       db.exec(`
         CREATE INDEX IF NOT EXISTS idx_version_tags_project_tag
         ON version_tags(project_id, tag);
+      `);
+    },
+  },
+  {
+    version: 4,
+    description: 'Add normalized tags table for ID-based tag management with rename support',
+    up: (db: Database): void => {
+      // Create tags table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS tags (
+          project_id TEXT NOT NULL,
+          tag_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          description TEXT,
+          metadata TEXT,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (project_id, tag_id),
+          FOREIGN KEY (project_id) REFERENCES snapshots(project_id) ON DELETE CASCADE
+        ) WITHOUT ROWID;
+      `);
+
+      // Indexes for tag lookups
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_tags_project_name
+        ON tags(project_id, name);
+      `);
+
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_tags_project_type
+        ON tags(project_id, type);
+      `);
+
+      // Create part_tag_ids table (replaces part tags in JSON)
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS part_tag_ids (
+          project_id TEXT NOT NULL,
+          part_id TEXT NOT NULL,
+          tag_id TEXT NOT NULL,
+          PRIMARY KEY (project_id, part_id, tag_id),
+          FOREIGN KEY (project_id) REFERENCES snapshots(project_id) ON DELETE CASCADE
+        ) WITHOUT ROWID;
+      `);
+
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_part_tag_ids_tag_id
+        ON part_tag_ids(tag_id);
+      `);
+
+      // Create version_tag_ids table
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS version_tag_ids (
+          project_id TEXT NOT NULL,
+          version_id TEXT NOT NULL,
+          tag_id TEXT NOT NULL,
+          PRIMARY KEY (project_id, version_id, tag_id),
+          FOREIGN KEY (project_id) REFERENCES snapshots(project_id) ON DELETE CASCADE
+        ) WITHOUT ROWID;
+      `);
+
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_version_tag_ids_tag_id
+        ON version_tag_ids(tag_id);
       `);
     },
   },
@@ -368,20 +439,24 @@ export class SqliteStorageProvider implements StorageProvider {
     try {
       const snapshot = JSON.parse(row.data) as ProjectSnapshot;
 
-      // Load version tags from the normalized table and merge into snapshot
-      const versionTags = this.loadVersionTags(this.db!, projectId as string);
-      if (versionTags.size > 0) {
-        // Create a new snapshot with tags merged in
-        return {
-          ...snapshot,
-          versions: snapshot.versions.map((v) => ({
-            ...v,
-            tags: versionTags.get(v.id),
-          })),
-        };
-      }
+      // Load tags from the normalized tables
+      const tags = this.loadTags(this.db!, projectId as string);
+      const partTagIds = this.loadPartTagIds(this.db!, projectId as string);
+      const versionTagIds = this.loadVersionTagIds(this.db!, projectId as string);
 
-      return snapshot;
+      // Merge tag data into snapshot
+      return {
+        ...snapshot,
+        tags,
+        parts: snapshot.parts.map((p) => ({
+          ...p,
+          tagIds: partTagIds.get(p.id as string) as readonly TagId[] | undefined,
+        })),
+        versions: snapshot.versions.map((v) => ({
+          ...v,
+          tagIds: versionTagIds.get(v.id as string) as readonly TagId[] | undefined,
+        })),
+      };
     } catch (error) {
       throw new Error(
         `Failed to parse snapshot data for project "${projectId}": ${error instanceof Error ? error.message : String(error)}`
@@ -390,25 +465,75 @@ export class SqliteStorageProvider implements StorageProvider {
   }
 
   /**
-   * Loads version tags from the normalized version_tags table.
+   * Loads tag definitions from the normalized tags table.
    * @param db - The database instance
    * @param projectId - The project ID
-   * @returns Map of version ID to array of tags
+   * @returns Array of tag definitions
    */
-  private loadVersionTags(db: Database, projectId: string): Map<string, string[]> {
+  private loadTags(db: Database, projectId: string): TagDefinition[] {
     const rows = db
       .prepare(
-        'SELECT version_id, tag FROM version_tags WHERE project_id = ? ORDER BY version_id, tag'
+        'SELECT tag_id, name, type, description, metadata, created_at FROM tags WHERE project_id = ?'
       )
-      .all(projectId) as Array<{ version_id: string; tag: string }>;
+      .all(projectId) as Array<{
+      tag_id: string;
+      name: string;
+      type: TagType;
+      description: string | null;
+      metadata: string | null;
+      created_at: string;
+    }>;
 
-    const versionTags = new Map<string, string[]>();
+    return rows.map((row) => ({
+      id: row.tag_id as TagId,
+      name: row.name,
+      type: row.type,
+      description: row.description ?? undefined,
+      metadata: row.metadata ? (JSON.parse(row.metadata) as Record<string, unknown>) : undefined,
+      createdAt: row.created_at as ISO8601Timestamp,
+    }));
+  }
+
+  /**
+   * Loads part tag associations from the normalized part_tag_ids table.
+   * @param db - The database instance
+   * @param projectId - The project ID
+   * @returns Map of part ID to array of tag IDs
+   */
+  private loadPartTagIds(db: Database, projectId: string): Map<string, string[]> {
+    const rows = db
+      .prepare('SELECT part_id, tag_id FROM part_tag_ids WHERE project_id = ? ORDER BY part_id, tag_id')
+      .all(projectId) as Array<{ part_id: string; tag_id: string }>;
+
+    const tagIds = new Map<string, string[]>();
     for (const row of rows) {
-      const tags = versionTags.get(row.version_id) ?? [];
-      tags.push(row.tag);
-      versionTags.set(row.version_id, tags);
+      const tags = tagIds.get(row.part_id) ?? [];
+      tags.push(row.tag_id);
+      tagIds.set(row.part_id, tags);
     }
-    return versionTags;
+    return tagIds;
+  }
+
+  /**
+   * Loads version tag associations from the normalized version_tag_ids table.
+   * @param db - The database instance
+   * @param projectId - The project ID
+   * @returns Map of version ID to array of tag IDs
+   */
+  private loadVersionTagIds(db: Database, projectId: string): Map<string, string[]> {
+    const rows = db
+      .prepare(
+        'SELECT version_id, tag_id FROM version_tag_ids WHERE project_id = ? ORDER BY version_id, tag_id'
+      )
+      .all(projectId) as Array<{ version_id: string; tag_id: string }>;
+
+    const tagIds = new Map<string, string[]>();
+    for (const row of rows) {
+      const tags = tagIds.get(row.version_id) ?? [];
+      tags.push(row.tag_id);
+      tagIds.set(row.version_id, tags);
+    }
+    return tagIds;
   }
 
   /**
@@ -455,50 +580,113 @@ export class SqliteStorageProvider implements StorageProvider {
       );
     }
 
-    // Save version tags to the normalized table
-    this.saveVersionTags(this.db!, snapshot);
+    // Save tags to normalized tables
+    this.saveTags(this.db!, snapshot);
+    this.savePartTagIds(this.db!, snapshot);
+    this.saveVersionTagIds(this.db!, snapshot);
   }
 
   /**
-   * Saves version tags to the normalized version_tags table.
+   * Saves tag definitions to the normalized tags table.
    * @param db - The database instance
-   * @param snapshot - The snapshot containing versions
+   * @param snapshot - The snapshot containing tags
    */
-  private saveVersionTags(db: Database, snapshot: ProjectSnapshot): void {
+  private saveTags(db: Database, snapshot: ProjectSnapshot): void {
     const projectId = snapshot.project.id as string;
 
     // Delete existing tags for this project
-    db.prepare('DELETE FROM version_tags WHERE project_id = ?').run(projectId);
+    db.prepare('DELETE FROM tags WHERE project_id = ?').run(projectId);
 
-    // Collect all tags to insert
-    const allTags: Array<{ projectId: string; versionId: string; tag: string }> = [];
-    for (const version of snapshot.versions) {
-      if (version.tags) {
-        for (const tag of version.tags) {
-          allTags.push({
-            projectId,
-            versionId: version.id as string,
-            tag,
-          });
+    if (!snapshot.tags || snapshot.tags.length === 0) return;
+
+    const insertTag = db.prepare(
+      'INSERT INTO tags (project_id, tag_id, name, type, description, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+
+    const insertMany = db.transaction((tags: readonly TagDefinition[]) => {
+      for (const tag of tags) {
+        insertTag.run(
+          projectId,
+          tag.id as string,
+          tag.name,
+          tag.type,
+          tag.description ?? null,
+          tag.metadata ? JSON.stringify(tag.metadata) : null,
+          tag.createdAt as string
+        );
+      }
+    });
+
+    insertMany(snapshot.tags);
+  }
+
+  /**
+   * Saves part tag associations to the normalized part_tag_ids table.
+   * @param db - The database instance
+   * @param snapshot - The snapshot containing parts
+   */
+  private savePartTagIds(db: Database, snapshot: ProjectSnapshot): void {
+    const projectId = snapshot.project.id as string;
+
+    // Delete existing associations for this project
+    db.prepare('DELETE FROM part_tag_ids WHERE project_id = ?').run(projectId);
+
+    const insert = db.prepare(
+      'INSERT INTO part_tag_ids (project_id, part_id, tag_id) VALUES (?, ?, ?)'
+    );
+
+    const insertMany = db.transaction((associations: Array<{ projectId: string; partId: string; tagId: string }>) => {
+      for (const { projectId, partId, tagId } of associations) {
+        insert.run(projectId, partId, tagId);
+      }
+    });
+
+    const all: Array<{ projectId: string; partId: string; tagId: string }> = [];
+    for (const part of snapshot.parts) {
+      if (part.tagIds) {
+        for (const tagId of part.tagIds) {
+          all.push({ projectId, partId: part.id as string, tagId: tagId as string });
         }
       }
     }
 
-    // Insert new tags using a transaction for performance
-    if (allTags.length > 0) {
-      const insertTag = db.prepare(
-        'INSERT INTO version_tags (project_id, version_id, tag) VALUES (?, ?, ?)'
-      );
+    if (all.length > 0) {
+      insertMany(all);
+    }
+  }
 
-      const insertMany = db.transaction(
-        (tags: Array<{ projectId: string; versionId: string; tag: string }>) => {
-          for (const { projectId, versionId, tag } of tags) {
-            insertTag.run(projectId, versionId, tag);
-          }
+  /**
+   * Saves version tag associations to the normalized version_tag_ids table.
+   * @param db - The database instance
+   * @param snapshot - The snapshot containing versions
+   */
+  private saveVersionTagIds(db: Database, snapshot: ProjectSnapshot): void {
+    const projectId = snapshot.project.id as string;
+
+    // Delete existing associations for this project
+    db.prepare('DELETE FROM version_tag_ids WHERE project_id = ?').run(projectId);
+
+    const insert = db.prepare(
+      'INSERT INTO version_tag_ids (project_id, version_id, tag_id) VALUES (?, ?, ?)'
+    );
+
+    const insertMany = db.transaction((associations: Array<{ projectId: string; versionId: string; tagId: string }>) => {
+      for (const { projectId, versionId, tagId } of associations) {
+        insert.run(projectId, versionId, tagId);
+      }
+    });
+
+    const all: Array<{ projectId: string; versionId: string; tagId: string }> = [];
+    for (const version of snapshot.versions) {
+      if (version.tagIds) {
+        for (const tagId of version.tagIds) {
+          all.push({ projectId, versionId: version.id as string, tagId: tagId as string });
         }
-      );
+      }
+    }
 
-      insertMany(allTags);
+    if (all.length > 0) {
+      insertMany(all);
     }
   }
 

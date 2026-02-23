@@ -482,7 +482,6 @@ describe('ProjectRegistry', () => {
             id: 'engine' as PartId,
             name: 'Engine',
             adapterId: 'adapter-1' as AdapterId,
-            tags: ['critical'],
           },
           {
             id: 'wheels' as PartId,

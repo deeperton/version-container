@@ -2,7 +2,8 @@ import type { PartAdapter, StorageProvider } from '../models/adapter.js';
 import type { PartDefinition, PartInit, PartVersion, PartVersionInit } from '../models/part.js';
 import type { VersionBinding } from '../models/part.js';
 import type { ProjectSnapshot } from '../models/project.js';
-import type { ComboId, PartId, PartVersionId, ProjectId } from '../models/base.js';
+import type { TagDefinition, TagInit } from '../models/tag.js';
+import type { ComboId, PartId, PartVersionId, ProjectId, TagId, TagType } from '../models/base.js';
 import type { VersionCombo, VersionComboInit } from '../models/combo.js';
 import type {
   ComboFilter,
@@ -36,7 +37,7 @@ import {
   type ProjectEventMap,
   type ProjectEventName,
 } from './events/project-events.js';
-import { createComboId, createPartId, createPartVersionId } from './ids.js';
+import { createComboId, createPartId, createPartVersionId, createTagId } from './ids.js';
 import { METADATA_DELETED_AT } from '../models/part.js';
 import { METADATA_PARTS_ORDER } from '../models/project.js';
 
@@ -122,6 +123,17 @@ export class ProjectHandle {
       return [];
     }
 
+    // Build a set of tagIds from tag names if filtering by tags
+    let filterTagIds: Set<TagId> | undefined;
+    if (filter?.tags && filter.tags.length > 0) {
+      // Resolve tag names to IDs for parts
+      filterTagIds = new Set(
+        filter.tags
+          .map((name) => snapshot.tags.find((t) => t.name === name && t.type === 'part')?.id)
+          .filter((id): id is TagId => id !== undefined)
+      );
+    }
+
     return snapshot.parts
       .filter((part) => {
         // Exclude soft-deleted parts unless includeDeleted is true
@@ -131,8 +143,11 @@ export class ProjectHandle {
         if (filter?.adapterId !== undefined && part.adapterId !== filter.adapterId) {
           return false;
         }
-        if (filter?.tags && filter.tags.length > 0) {
-          if (!part.tags || !filter.tags.some((tag) => part.tags!.includes(tag))) {
+        if (filterTagIds && filterTagIds.size > 0) {
+          if (
+            !part.tagIds ||
+            !Array.from(filterTagIds).some((tagId) => part.tagIds!.includes(tagId))
+          ) {
             return false;
           }
         }
@@ -166,6 +181,28 @@ export class ProjectHandle {
       return [];
     }
 
+    // Build a set of tagIds from tag names if filtering by tags
+    let filterTagIdsAny: Set<TagId> | undefined;
+    let filterTagIdsAll: Set<TagId> | undefined;
+
+    if (filter?.tagsAny || filter?.tagsAll) {
+      // Resolve tag names to IDs
+      if (filter.tagsAny) {
+        filterTagIdsAny = new Set(
+          filter.tagsAny
+            .map((name) => snapshot.tags.find((t) => t.name === name && t.type === 'version')?.id)
+            .filter((id): id is TagId => id !== undefined)
+        );
+      }
+      if (filter.tagsAll) {
+        filterTagIdsAll = new Set(
+          filter.tagsAll
+            .map((name) => snapshot.tags.find((t) => t.name === name && t.type === 'version')?.id)
+            .filter((id): id is TagId => id !== undefined)
+        );
+      }
+    }
+
     return snapshot.versions
       .filter((version) => {
         // Exclude soft-deleted versions unless includeDeleted is true
@@ -179,14 +216,20 @@ export class ProjectHandle {
           return false;
         }
         // Tag filtering - OR logic (any match)
-        if (filter?.tagsAny && filter.tagsAny.length > 0) {
-          if (!version.tags || !filter.tagsAny.some((tag) => version.tags!.includes(tag))) {
+        if (filterTagIdsAny && filterTagIdsAny.size > 0) {
+          if (
+            !version.tagIds ||
+            !Array.from(filterTagIdsAny).some((tagId) => version.tagIds!.includes(tagId))
+          ) {
             return false;
           }
         }
         // Tag filtering - AND logic (all match)
-        if (filter?.tagsAll && filter.tagsAll.length > 0) {
-          if (!version.tags || !filter.tagsAll.every((tag) => version.tags!.includes(tag))) {
+        if (filterTagIdsAll && filterTagIdsAll.size > 0) {
+          if (
+            !version.tagIds ||
+            !Array.from(filterTagIdsAll).every((tagId) => version.tagIds!.includes(tagId))
+          ) {
             return false;
           }
         }
@@ -379,90 +422,97 @@ export class ProjectHandle {
    * @returns The updated version
    * @throws Error if version not found
    */
-  async addVersionTags(versionId: PartVersionId, tags: readonly string[]): Promise<PartVersion> {
+  /**
+   * Adds tag IDs to an existing version.
+   * @param versionId - The version to add tags to
+   * @param tagIds - Tag IDs to add (duplicates are ignored)
+   * @returns The updated version
+   * @throws Error if version not found
+   */
+  async addVersionTagIds(versionId: PartVersionId, tagIds: readonly TagId[]): Promise<PartVersion> {
     const version = this.getVersionById(versionId);
     if (!version) {
       throw new VersionNotFoundError(versionId);
     }
 
-    const currentTags = version.tags ?? [];
-    const tagsToAdd = this.validateTags(tags).filter((t) => !currentTags.includes(t));
-    if (tagsToAdd.length === 0) {
+    const currentTagIds = version.tagIds ?? [];
+    const tagIdsToAdd = tagIds.filter((t) => !currentTagIds.includes(t));
+    if (tagIdsToAdd.length === 0) {
       return version; // No new tags to add
     }
 
     return this.updatePartVersion(versionId, (existing) => ({
       ...existing,
-      tags: [...currentTags, ...tagsToAdd],
+      tagIds: [...currentTagIds, ...tagIdsToAdd],
     }));
   }
 
   /**
-   * Removes tags from an existing version.
+   * Removes tag IDs from an existing version.
    * @param versionId - The version to remove tags from
-   * @param tags - Tags to remove
+   * @param tagIds - Tag IDs to remove
    * @returns The updated version
    * @throws Error if version not found
    */
-  async removeVersionTags(versionId: PartVersionId, tags: readonly string[]): Promise<PartVersion> {
+  async removeVersionTagIds(versionId: PartVersionId, tagIds: readonly TagId[]): Promise<PartVersion> {
     const version = this.getVersionById(versionId);
     if (!version) {
       throw new VersionNotFoundError(versionId);
     }
 
-    if (!version.tags || version.tags.length === 0) {
+    if (!version.tagIds || version.tagIds.length === 0) {
       return version; // No tags to remove
     }
 
-    const updatedTags = version.tags.filter((t) => !tags.includes(t));
-    if (updatedTags.length === version.tags.length) {
+    const updatedTagIds = version.tagIds.filter((t) => !tagIds.includes(t));
+    if (updatedTagIds.length === version.tagIds.length) {
       return version; // No tags were removed
     }
 
     return this.updatePartVersion(versionId, (existing) => ({
       ...existing,
-      tags: updatedTags.length > 0 ? updatedTags : undefined,
+      tagIds: updatedTagIds.length > 0 ? updatedTagIds : undefined,
     }));
   }
 
   /**
-   * Sets all tags on an existing version, replacing any existing tags.
+   * Sets all tag IDs on an existing version, replacing any existing tags.
    * @param versionId - The version to set tags on
-   * @param tags - Tags to set (undefined or empty array removes all tags)
+   * @param tagIds - Tag IDs to set (undefined or empty array removes all tags)
    * @returns The updated version
    * @throws Error if version not found
    */
-  async setVersionTags(versionId: PartVersionId, tags?: readonly string[]): Promise<PartVersion> {
+  async setVersionTagIds(versionId: PartVersionId, tagIds?: readonly TagId[]): Promise<PartVersion> {
     const version = this.getVersionById(versionId);
     if (!version) {
       throw new VersionNotFoundError(versionId);
     }
 
-    // Validate tags - undefined or empty array -> remove tags
-    const normalizedTags = tags && tags.length > 0 ? this.validateTags(tags) : undefined;
+    // Normalize: undefined or empty array -> remove tags
+    const normalizedTagIds = tagIds && tagIds.length > 0 ? tagIds : undefined;
 
-    if (this.areArraysEqual(version.tags, normalizedTags)) {
+    if (this.areTagIdArraysEqual(version.tagIds, normalizedTagIds)) {
       return version; // No change
     }
 
     return this.updatePartVersion(versionId, (existing) => ({
       ...existing,
-      tags: normalizedTags,
+      tagIds: normalizedTagIds,
     }));
   }
 
   /**
-   * Gets all tags for a version.
+   * Gets all tag IDs for a version.
    * @param versionId - The version to get tags for
-   * @returns Array of tags or undefined if version not found or has no tags
+   * @returns Array of tag IDs or undefined if version not found or has no tags
    */
-  getVersionTags(versionId: PartVersionId): readonly string[] | undefined {
-    return this.getVersionById(versionId)?.tags;
+  getVersionTagIds(versionId: PartVersionId): readonly TagId[] | undefined {
+    return this.getVersionById(versionId)?.tagIds;
   }
 
   /**
    * Gets all version tags with usage statistics.
-   * @returns Map of tag to count of versions with that tag
+   * @returns Map of tag name to count of versions with that tag
    */
   getVersionTagStats(): Map<string, number> {
     const snapshot = this.snapshotCache;
@@ -472,9 +522,12 @@ export class ProjectHandle {
 
     const tagCounts = new Map<string, number>();
     for (const version of snapshot.versions) {
-      if (version.tags) {
-        for (const tag of version.tags) {
-          tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+      if (version.tagIds) {
+        for (const tagId of version.tagIds) {
+          const tag = snapshot.tags.find((t) => t.id === tagId);
+          if (tag) {
+            tagCounts.set(tag.name, (tagCounts.get(tag.name) ?? 0) + 1);
+          }
         }
       }
     }
@@ -484,7 +537,7 @@ export class ProjectHandle {
   /**
    * Gets all version tags sorted by usage (most used first).
    * @param limit - Maximum number of tags to return (undefined = all)
-   * @returns Array of [tag, count] tuples sorted by count descending
+   * @returns Array of [tag name, count] tuples sorted by count descending
    */
   getTopVersionTags(limit?: number): readonly [string, number][] {
     const stats = this.getVersionTagStats();
@@ -494,16 +547,417 @@ export class ProjectHandle {
   }
 
   /**
-   * Helper method for array comparison.
+   * Adds tag IDs to an existing part.
+   * @param partId - The part to add tags to
+   * @param tagIds - Tag IDs to add (duplicates are ignored)
+   * @returns The updated part
+   * @throws Error if part not found
    */
-  private areArraysEqual(
-    a: readonly string[] | undefined,
-    b: readonly string[] | undefined
+  async addPartTagIds(partId: PartId, tagIds: readonly TagId[]): Promise<PartDefinition> {
+    const part = this.getPartById(partId);
+    if (!part) {
+      throw new PartNotFoundError(partId);
+    }
+
+    const currentTagIds = part.tagIds ?? [];
+    const tagIdsToAdd = tagIds.filter((t) => !currentTagIds.includes(t));
+    if (tagIdsToAdd.length === 0) {
+      return part; // No new tags to add
+    }
+
+    return this.updatePart(partId, (existing) => ({
+      ...existing,
+      tagIds: [...currentTagIds, ...tagIdsToAdd],
+    }));
+  }
+
+  /**
+   * Removes tag IDs from an existing part.
+   * @param partId - The part to remove tags from
+   * @param tagIds - Tag IDs to remove
+   * @returns The updated part
+   * @throws Error if part not found
+   */
+  async removePartTagIds(partId: PartId, tagIds: readonly TagId[]): Promise<PartDefinition> {
+    const part = this.getPartById(partId);
+    if (!part) {
+      throw new PartNotFoundError(partId);
+    }
+
+    if (!part.tagIds || part.tagIds.length === 0) {
+      return part; // No tags to remove
+    }
+
+    const updatedTagIds = part.tagIds.filter((t) => !tagIds.includes(t));
+    if (updatedTagIds.length === part.tagIds.length) {
+      return part; // No tags were removed
+    }
+
+    return this.updatePart(partId, (existing) => ({
+      ...existing,
+      tagIds: updatedTagIds.length > 0 ? updatedTagIds : undefined,
+    }));
+  }
+
+  /**
+   * Sets all tag IDs on an existing part, replacing any existing tags.
+   * @param partId - The part to set tags on
+   * @param tagIds - Tag IDs to set (undefined or empty array removes all tags)
+   * @returns The updated part
+   * @throws Error if part not found
+   */
+  async setPartTagIds(partId: PartId, tagIds?: readonly TagId[]): Promise<PartDefinition> {
+    const part = this.getPartById(partId);
+    if (!part) {
+      throw new PartNotFoundError(partId);
+    }
+
+    // Normalize: undefined or empty array -> remove tags
+    const normalizedTagIds = tagIds && tagIds.length > 0 ? tagIds : undefined;
+
+    if (this.areTagIdArraysEqual(part.tagIds, normalizedTagIds)) {
+      return part; // No change
+    }
+
+    return this.updatePart(partId, (existing) => ({
+      ...existing,
+      tagIds: normalizedTagIds,
+    }));
+  }
+
+  /**
+   * Gets all tag IDs for a part.
+   * @param partId - The part to get tags for
+   * @returns Array of tag IDs or undefined if part not found or has no tags
+   */
+  getPartTagIds(partId: PartId): readonly TagId[] | undefined {
+    return this.getPartById(partId)?.tagIds;
+  }
+
+  /**
+   * Gets all part tags with usage statistics.
+   * @returns Map of tag name to count of parts with that tag
+   */
+  getPartTagStats(): Map<string, number> {
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return new Map();
+    }
+
+    const tagCounts = new Map<string, number>();
+    for (const part of snapshot.parts) {
+      if (part.tagIds) {
+        for (const tagId of part.tagIds) {
+          const tag = snapshot.tags.find((t) => t.id === tagId);
+          if (tag) {
+            tagCounts.set(tag.name, (tagCounts.get(tag.name) ?? 0) + 1);
+          }
+        }
+      }
+    }
+    return tagCounts;
+  }
+
+  /**
+   * Gets all part tags sorted by usage (most used first).
+   * @param limit - Maximum number of tags to return (undefined = all)
+   * @returns Array of [tag name, count] tuples sorted by count descending
+   */
+  getTopPartTags(limit?: number): readonly [string, number][] {
+    const stats = this.getPartTagStats();
+    return Array.from(stats.entries())
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, limit);
+  }
+
+  /**
+   * Helper method for TagId array comparison.
+   */
+  private areTagIdArraysEqual(
+    a: readonly TagId[] | undefined,
+    b: readonly TagId[] | undefined
   ): boolean {
     if (a === b) return true;
     if (!a || !b) return false;
     if (a.length !== b.length) return false;
     return a.every((val, idx) => val === b[idx]);
+  }
+
+  /**
+   * Creates a new tag in the project.
+   * @param tagInit - The tag initialization data
+   * @returns The created tag definition
+   * @throws Error if tag name already exists for this type or name is invalid
+   */
+  async createTag(tagInit: TagInit): Promise<TagDefinition> {
+    const result = await this.commitMutation<TagDefinition>((snapshot) => {
+      // Validate tag name (no spaces, same validation as before)
+      const validatedName = this.validateTagName(tagInit.name);
+      if (!validatedName) {
+        throw new Error(`Invalid tag name: "${tagInit.name}"`);
+      }
+
+      // Check for duplicate name within the same tag type
+      const existingTag = snapshot.tags.find(
+        (t) => t.name === validatedName && t.type === tagInit.type
+      );
+      if (existingTag) {
+        throw new Error(
+          `Tag "${validatedName}" of type "${tagInit.type}" already exists: ${existingTag.id}`
+        );
+      }
+
+      const tagId = createTagId(tagInit.id);
+      const tag: TagDefinition = {
+        id: tagId,
+        name: validatedName,
+        type: tagInit.type,
+        description: tagInit.description,
+        metadata: tagInit.metadata,
+        createdAt: this.clock.now(),
+      };
+
+      const nextSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        tags: sortById([...snapshot.tags, tag]),
+      };
+
+      return {
+        snapshot: nextSnapshot,
+        result: tag,
+        events: [
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'tag:created',
+            payload: { projectId: this.projectId, tag, snapshot: finalSnapshot },
+          }),
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
+      };
+    });
+
+    return cloneValue(result);
+  }
+
+  /**
+   * Renames a tag, updating all references atomically.
+   * @param tagId - The tag to rename
+   * @param newName - The new name for the tag
+   * @returns The updated tag definition
+   * @throws Error if tag not found or new name conflicts
+   */
+  async renameTag(tagId: TagId, newName: string): Promise<TagDefinition> {
+    const result = await this.commitMutation<TagDefinition>((snapshot) => {
+      const tag = snapshot.tags.find((t) => t.id === tagId);
+      if (!tag) {
+        throw new Error(`Tag not found: ${tagId}`);
+      }
+
+      const validatedName = this.validateTagName(newName);
+      if (!validatedName) {
+        throw new Error(`Invalid tag name: "${newName}"`);
+      }
+
+      // Check for name conflict within the same type (excluding self)
+      const conflict = snapshot.tags.find(
+        (t) => t.id !== tagId && t.name === validatedName && t.type === tag.type
+      );
+      if (conflict) {
+        throw new Error(
+          `Tag "${validatedName}" of type "${tag.type}" already exists: ${conflict.id}`
+        );
+      }
+
+      // Update the tag
+      const updatedTag: TagDefinition = { ...tag, name: validatedName };
+
+      // No need to update references - they use TagId, not the name
+
+      const tags = snapshot.tags.map((t) => (t.id === tagId ? updatedTag : t));
+
+      const nextSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        tags,
+      };
+
+      return {
+        snapshot: nextSnapshot,
+        result: updatedTag,
+        events: [
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'tag:renamed',
+            payload: {
+              projectId: this.projectId,
+              tagId,
+              previousName: tag.name,
+              tag: updatedTag,
+              snapshot: finalSnapshot,
+            },
+          }),
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
+      };
+    });
+
+    return cloneValue(result);
+  }
+
+  /**
+   * Deletes a tag and removes it from all parts/versions.
+   * @param tagId - The tag to delete
+   * @returns The deleted tag definition
+   * @throws Error if tag not found
+   */
+  async deleteTag(tagId: TagId): Promise<TagDefinition> {
+    const result = await this.commitMutation<TagDefinition>((snapshot) => {
+      const tag = snapshot.tags.find((t) => t.id === tagId);
+      if (!tag) {
+        throw new Error(`Tag not found: ${tagId}`);
+      }
+
+      // Remove tag from parts
+      const parts = snapshot.parts.map((part) => ({
+        ...part,
+        tagIds: part.tagIds?.filter((id) => id !== tagId),
+      }));
+
+      // Remove tag from versions
+      const versions = snapshot.versions.map((version) => ({
+        ...version,
+        tagIds: version.tagIds?.filter((id) => id !== tagId),
+      }));
+
+      // Remove the tag itself
+      const tags = snapshot.tags.filter((t) => t.id !== tagId);
+
+      const nextSnapshot: ProjectSnapshot = {
+        ...snapshot,
+        parts,
+        versions,
+        tags,
+      };
+
+      return {
+        snapshot: nextSnapshot,
+        result: tag,
+        events: [
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'tag:deleted',
+            payload: { projectId: this.projectId, tagId, tag, snapshot: finalSnapshot },
+          }),
+          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+            name: 'project:updated',
+            payload: { projectId: this.projectId, snapshot: finalSnapshot },
+          }),
+        ],
+      };
+    });
+
+    return cloneValue(result);
+  }
+
+  /**
+   * Gets a tag by ID.
+   * @param tagId - The tag ID
+   * @returns The tag definition or undefined
+   */
+  getTagById(tagId: TagId): TagDefinition | undefined {
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return undefined;
+    }
+    const tag = snapshot.tags.find((t) => t.id === tagId);
+    return tag ? cloneValue(tag) : undefined;
+  }
+
+  /**
+   * Lists all tags in the project.
+   * @param type - Optional filter by tag type
+   * @returns Array of tag definitions
+   */
+  listTags(type?: TagType): readonly TagDefinition[] {
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return [];
+    }
+    let tags = snapshot.tags;
+    if (type !== undefined) {
+      tags = tags.filter((t) => t.type === type);
+    }
+    return cloneValue(tags);
+  }
+
+  /**
+   * Finds a tag by name and type.
+   * @param name - The tag name
+   * @param type - The tag type
+   * @returns The tag definition or undefined
+   */
+  findTagByName(name: string, type: TagType): TagDefinition | undefined {
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return undefined;
+    }
+    return snapshot.tags.find((t) => t.name === name && t.type === type);
+  }
+
+  /**
+   * Gets the actual tag names for a version (resolved from tagIds).
+   * @param versionId - The version ID
+   * @returns Array of tag names or undefined
+   */
+  getVersionTagNames(versionId: PartVersionId): readonly string[] | undefined {
+    const version = this.getVersionById(versionId);
+    if (!version?.tagIds) {
+      return undefined;
+    }
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return undefined;
+    }
+    return version.tagIds
+      .map((tagId) => snapshot.tags.find((t) => t.id === tagId)?.name)
+      .filter((name): name is string => name !== undefined);
+  }
+
+  /**
+   * Gets the actual tag names for a part (resolved from tagIds).
+   * @param partId - The part ID
+   * @returns Array of tag names or undefined
+   */
+  getPartTagNames(partId: PartId): readonly string[] | undefined {
+    const part = this.getPartById(partId);
+    if (!part?.tagIds) {
+      return undefined;
+    }
+    const snapshot = this.snapshotCache;
+    if (!snapshot) {
+      return undefined;
+    }
+    return part.tagIds
+      .map((tagId) => snapshot.tags.find((t) => t.id === tagId)?.name)
+      .filter((name): name is string => name !== undefined);
+  }
+
+  /**
+   * Validates a tag name.
+   * - No spaces allowed within a tag
+   * - Empty tags are invalid
+   * @param name - The tag name to validate
+   * @returns The trimmed name, or undefined if invalid
+   */
+  private validateTagName(name: string): string | undefined {
+    const trimmed = name.trim();
+    // Check for spaces (not allowed within a tag)
+    if (trimmed.includes(' ') || trimmed.length === 0) {
+      return undefined;
+    }
+    return trimmed;
   }
 
   /**
@@ -518,38 +972,6 @@ export class ProjectHandle {
    */
   private isVersionDeleted(version: PartVersion): boolean {
     return version.metadata?.[METADATA_DELETED_AT] !== undefined;
-  }
-
-  /**
-   * Validates a tag value.
-   * - No spaces allowed within a tag
-   * - Empty tags are invalid
-   * @param tag - The tag to validate
-   * @returns The trimmed tag, or undefined if invalid
-   */
-  private validateTag(tag: string): string | undefined {
-    const trimmed = tag.trim();
-    // Check for spaces (not allowed within a tag)
-    if (trimmed.includes(' ') || trimmed.length === 0) {
-      return undefined;
-    }
-    return trimmed;
-  }
-
-  /**
-   * Validates and filters an array of tags.
-   * @param tags - Tags to validate
-   * @returns Array of valid, unique tags
-   */
-  private validateTags(tags: readonly string[]): string[] {
-    const valid = new Set<string>();
-    for (const tag of tags) {
-      const cleaned = this.validateTag(tag);
-      if (cleaned) {
-        valid.add(cleaned);
-      }
-    }
-    return Array.from(valid);
   }
 
   /**
@@ -656,7 +1078,7 @@ export class ProjectHandle {
         name: partInit.name,
         description: partInit.description,
         adapterId: partInit.adapterId,
-        tags: partInit.tags,
+        tagIds: partInit.tagIds,
         metadata: partInit.metadata,
         owner: partInit.owner,
       };
@@ -678,6 +1100,7 @@ export class ProjectHandle {
           partId,
           label: versionInit.label,
           locator: versionInit.locator,
+          tagIds: versionInit.tagIds,
           metadata: versionInit.metadata,
         });
       }
@@ -777,15 +1200,12 @@ export class ProjectHandle {
         throw new VersionAlreadyExistsError(versionId);
       }
 
-      // Validate tags before creating version (rejects tags with spaces)
-      const validatedTags = versionInit.tags ? this.validateTags(versionInit.tags) : undefined;
-
       const version: PartVersion = {
         id: versionId,
         partId,
         label: versionInit.label,
         locator: versionInit.locator,
-        tags: validatedTags,
+        tagIds: versionInit.tagIds,
         metadata: versionInit.metadata,
         owner: versionInit.owner,
       };
@@ -1394,16 +1814,93 @@ export class ProjectHandle {
     });
   }
 
+  /**
+   * Migrates a snapshot from string-based tags to ID-based tags.
+   * Handles any existing snapshots that were created before the tag ID system.
+   * @param snapshot - The snapshot to migrate
+   * @returns The migrated snapshot
+   */
+  private migrateToTagIds(snapshot: ProjectSnapshot): ProjectSnapshot {
+    // Skip if already migrated (has tags array with content)
+    if (snapshot.tags && snapshot.tags.length > 0) {
+      return snapshot;
+    }
+
+    const tagMap = new Map<string, TagId>(); // name -> id for each type
+    const tags: TagDefinition[] = [];
+    let tagSequence = 0;
+
+    const getOrCreateTagId = (name: string, type: TagType): TagId => {
+      const key = `${type}:${name}`;
+      if (tagMap.has(key)) {
+        return tagMap.get(key)!;
+      }
+
+      const tagId = `tag-migrated-${tagSequence++}` as TagId;
+      const tag: TagDefinition = {
+        id: tagId,
+        name,
+        type,
+        createdAt: snapshot.project.createdAt, // Use project creation time
+      };
+      tags.push(tag);
+      tagMap.set(key, tagId);
+      return tagId;
+    };
+
+    // Migrate part tags (if any exist from old snapshots)
+    const parts = snapshot.parts.map((part) => {
+      // Check for old string-based tags in serialized data
+      const oldTags = (part as { tags?: readonly string[] }).tags;
+      if (!oldTags || oldTags.length === 0) {
+        return part; // Already has tagIds or no tags
+      }
+
+      const tagIds = oldTags.map((name: string) => getOrCreateTagId(name, 'part'));
+      // Create a new part object without the old tags property
+      return {
+        ...part,
+        tagIds,
+      };
+    });
+
+    // Migrate version tags (if any exist from old snapshots)
+    const versions = snapshot.versions.map((version) => {
+      // Check for old string-based tags in serialized data
+      const oldTags = (version as { tags?: readonly string[] }).tags;
+      if (!oldTags || oldTags.length === 0) {
+        return version; // Already has tagIds or no tags
+      }
+
+      const tagIds = oldTags.map((name: string) => getOrCreateTagId(name, 'version'));
+      // Create a new version object without the old tags property
+      return {
+        ...version,
+        tagIds,
+      };
+    });
+
+    return {
+      ...snapshot,
+      tags,
+      parts,
+      versions,
+    };
+  }
+
   private async ensureSnapshot(): Promise<ProjectSnapshot> {
     this.assertOpen();
     if (this.snapshotCache) {
       return this.snapshotCache;
     }
 
-    const snapshot = await this.loader();
+    let snapshot = await this.loader();
     if (!snapshot) {
       throw new ProjectNotInStorageError(this.projectId);
     }
+
+    // Migrate if needed (handles any old string-based tags)
+    snapshot = this.migrateToTagIds(snapshot);
 
     this.snapshotCache = cloneValue(snapshot);
     return this.snapshotCache;

@@ -23,6 +23,7 @@ const createTestSnapshot = (
   versions: [],
   combos: [],
   locks: [],
+  tags: [],
 });
 
 describe('MongoDbStorageProvider', () => {
