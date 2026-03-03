@@ -35,10 +35,12 @@ Project
 | `PartVersionId` | Branded version identifier | `createPartVersionId('v1.0.0')` |
 | `ComboId` | Branded combo identifier | `createComboId('baseline')` |
 | `AdapterId` | Branded adapter identifier | `createAdapterId('git')` |
+| `TagId` | Branded tag identifier | `createTagId('stable')` |
+| `TagType` | Tag domain type | `'part'` or `'version'` |
 | `UserId` | Branded user identifier | `createUserId('user-123')` |
 | `UserGroupId` | Branded user group identifier | `createUserGroupId('team-alpha')` |
 | `OwnerInfo` | Owner metadata | `{ userName, userId, userGroupId? }` |
-| `ProjectSnapshot` | Complete project state | Full project with parts/versions/combos |
+| `ProjectSnapshot` | Complete project state | Full project with parts/versions/combos/tags |
 | `ProjectSummary` | Lightweight project info | id, name, description, owner, updatedAt |
 | `ProjectsQuery` | Query options for listProjects | `{ ownerUserId?, namePattern?, limit?, page?, includeAll? }` |
 | `ProjectListResult` | Paginated list of projects | `{ projects[], pagination{} }` |
@@ -59,6 +61,7 @@ import {
   createPartVersionId,
   createComboId,
   createAdapterId,
+  createTagId,
   createUserId,
   createUserGroupId,
 } from 'version-container';
@@ -307,6 +310,141 @@ const summary = await registry.getPartSummary(projectId, partId);
 console.log(summary?.owner?.userName); // "John Doe"
 ```
 
+### Tag Management
+
+The library provides a centralized tag management system with ID-based tags. Tags are scoped per project and typed (`part` or `version`).
+
+#### Creating Tags
+
+```typescript
+// Create a version tag
+const stableTag = await handle.createTag({
+  name: 'stable',
+  type: 'version',
+  description: 'Production-ready versions',
+});
+
+// Create a part tag
+const criticalTag = await handle.createTag({
+  name: 'critical',
+  type: 'part',
+  description: 'Critical system components',
+});
+```
+
+#### Assigning Tags to Parts and Versions
+
+```typescript
+// Assign tags when creating a version
+await registry.addPartVersion(handle.projectId, partId, {
+  id: createPartVersionId('v1.0.0'),
+  label: '1.0.0',
+  locator: { uri: 'npm://pkg@1.0.0' },
+  tagIds: [stableTag.id],
+});
+
+// Add tags to an existing version
+await registry.addVersionTagIds(handle.projectId, versionId, [
+  stableTag.id,
+  createTagId('production'),
+]);
+
+// Remove tags from a version
+await registry.removeVersionTagIds(handle.projectId, versionId, [
+  stableTag.id,
+]);
+
+// Replace all tags on a version
+await registry.setVersionTagIds(handle.projectId, versionId, [
+  stableTag.id,
+]);
+
+// Same operations for parts:
+// addPartTagIds, removePartTagIds, setPartTagIds
+```
+
+#### Querying by Tags
+
+```typescript
+// Find versions with specific tags (OR logic)
+const stableVersions = await registry.findVersions(handle.projectId, {
+  tagsAny: ['stable', 'production'],
+});
+
+// Find versions with all specified tags (AND logic)
+const stableProductionVersions = await registry.findVersions(handle.projectId, {
+  tagsAll: ['stable', 'tested'],
+});
+
+// Combine with other filters
+const recentStable = await registry.findVersions(handle.projectId, {
+  partId: enginePartId,
+  tagsAny: ['stable'],
+});
+```
+
+#### Resolving Tag Names
+
+```typescript
+// Get tag IDs for a version
+const tagIds = await registry.getVersionTagIds(handle.projectId, versionId);
+console.log(tagIds); // [TagId, TagId, ...]
+
+// Get resolved tag names for a version
+const tagNames = await registry.getVersionTagNames(handle.projectId, versionId);
+console.log(tagNames); // ['stable', 'production', ...]
+
+// Same for parts
+const partTagNames = await registry.getPartTagNames(handle.projectId, partId);
+```
+
+#### Tag Statistics
+
+```typescript
+// Get full statistics map (tag name -> count)
+const stats = await handle.getVersionTagStats();
+console.log(stats.get('stable')); // 5
+
+// Get top N tags by usage
+const topTags = await handle.getTopVersionTags(5);
+console.log(topTags); // [['stable', 5], ['production', 3], ...]
+```
+
+#### Renaming and Deleting Tags
+
+```typescript
+// Rename a tag (atomic - all references update automatically)
+await handle.renameTag(stableTag.id, 'release');
+
+// Delete a tag (removes from all parts/versions that reference it)
+await handle.deleteTag(criticalTag.id);
+```
+
+#### Listing and Finding Tags
+
+```typescript
+// List all tags in the project
+const allTags = handle.listTags();
+
+// List tags filtered by type
+const versionTags = handle.listTags('version');
+const partTags = handle.listTags('part');
+
+// Find a tag by name and type
+const tag = handle.findTagByName('stable', 'version');
+console.log(tag?.id); // TagId
+
+// Get a tag by ID
+const tagById = handle.getTagById(stableTag.id);
+```
+
+#### Tag Validation Rules
+
+- Tag names cannot contain spaces
+- Tag names are case-sensitive (`URL` ≠ `url`)
+- Tag names can contain special characters (`v1.0.0`, `release@final`, etc.)
+- Duplicate tag names are not allowed within the same type (but `stable` can exist for both parts and versions)
+
 ### Adding Parts and Versions
 
 ```typescript
@@ -314,25 +452,40 @@ const enginePartId = createPartId('engine');
 const v1Id = createPartVersionId('v1.0.0');
 const v2Id = createPartVersionId('v1.1.0');
 
-// Add part
+// Create tags first (scoped per project, typed as 'part' or 'version')
+const criticalTag = await handle.createTag({
+  name: 'critical',
+  type: 'part',
+  description: 'Critical system components',
+});
+
+const stableTag = await handle.createTag({
+  name: 'stable',
+  type: 'version',
+  description: 'Production-ready versions',
+});
+
+// Add part with tag IDs
 await registry.addPart(handle.projectId, {
   id: enginePartId,
   name: 'Engine Controller',
   adapterId: createAdapterId('git'),
-  tags: ['critical', 'hardware'],
+  tagIds: [criticalTag.id],
 });
 
-// Add versions
+// Add versions with tag IDs
 await registry.addPartVersion(handle.projectId, enginePartId, {
   id: v1Id,
   label: '1.0.0',
   locator: { uri: 'git://engine.git@v1.0.0' },
+  tagIds: [stableTag.id],
 });
 
 await registry.addPartVersion(handle.projectId, enginePartId, {
   id: v2Id,
   label: '1.1.0',
   locator: { uri: 'git://engine.git@v1.1.0' },
+  tagIds: [stableTag.id],
 });
 ```
 
@@ -371,9 +524,14 @@ const gitParts = await registry.findParts(handle.projectId, {
   adapterId: createAdapterId('git'),
 });
 
-// Find parts by tags
+// Find parts by tag names (OR logic - any match)
 const criticalParts = await registry.findParts(handle.projectId, {
-  tags: ['critical'],
+  tagsAny: ['critical'],
+});
+
+// Find parts by tag names (AND logic - all must match)
+const criticalAndHardware = await registry.findParts(handle.projectId, {
+  tagsAll: ['critical', 'hardware'],
 });
 
 // Find parts by owner
@@ -384,6 +542,11 @@ const partsByUser = await registry.findParts(handle.projectId, {
 // Find versions for a specific part
 const engineVersions = await registry.findVersions(handle.projectId, {
   partId: enginePartId,
+});
+
+// Find versions by tag names
+const stableVersions = await registry.findVersions(handle.projectId, {
+  tagsAny: ['stable'],
 });
 
 // Find versions by owner
@@ -538,7 +701,7 @@ const unsubscribe = events.subscribe('version:added', ({ projectId, version }) =
 unsubscribe();
 ```
 
-Available events: `project:created`, `project:loaded`, `project:updated`, `project:closed`, `part:added`, `part:updated`, `part:removed`, `version:added`, `version:updated`, `version:removed`, `combo:added`, `combo:updated`, `combo:removed`, `partsOrder:updated`.
+Available events: `project:created`, `project:loaded`, `project:updated`, `project:closed`, `part:added`, `part:updated`, `part:removed`, `version:added`, `version:updated`, `version:removed`, `combo:added`, `combo:updated`, `combo:removed`, `partsOrder:updated`, `tag:created`, `tag:renamed`, `tag:deleted`.
 
 ## Error Handling
 
