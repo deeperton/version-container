@@ -1,5 +1,24 @@
 # CLAUDE.md
 
+## Table of Contents
+
+- [Project Overview](#project-overview)
+- [Architecture Principles](#architecture-principles)
+- [Domain Model](#domain-model)
+- [File Structure](#file-structure)
+- [Testing Guidelines](#testing-guidelines)
+- [Development Workflow](#development-workflow)
+- [Git Workflow & Best Practices](#git-workflow--best-practices)
+- [Code Quality Checklist](#code-quality-checklist)
+- [Adding New Features](#adding-new-features)
+- [Best Practices](#best-practices)
+- [Performance Considerations](#performance-considerations)
+- [Security](#security)
+- [Current Implementation Status](#current-implementation-status)
+- [Common Patterns](#common-patterns)
+
+---
+
 ## Project Overview
 
 This is a TypeScript library project called **version-container** that provides type-safe building blocks for managing projects composed of parts, versions, and version combos. The library focuses on deterministic snapshots, pluggable storage/adapters, and tooling-friendly lifecycle management.

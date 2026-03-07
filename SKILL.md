@@ -3,6 +3,23 @@ name: Using version-container library
 description: dealing with a typescript library for managing projects composed of parts, versions, and version combos with pluggable storage backends
 ---
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Core Concepts](#core-concepts)
+- [Installation](#installation)
+- [Quick Start Pattern](#quick-start-pattern)
+- [Storage Provider Selection](#storage-provider-selection)
+- [Common Workflows](#common-workflows)
+- [Event Subscription](#event-subscription)
+- [Error Handling](#error-handling)
+- [Best Practices](#best-practices)
+- [File Structure Reference](#file-structure-reference)
+- [Testing Patterns](#testing-patterns)
+- [Storage Comparison](#storage-comparison)
+
+---
+
 The library source code is available at https://github.com/deeperton/version-container
 
 ## Overview
