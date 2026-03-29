@@ -502,7 +502,9 @@ export class SqliteStorageProvider implements StorageProvider {
    */
   private loadPartTagIds(db: Database, projectId: string): Map<string, string[]> {
     const rows = db
-      .prepare('SELECT part_id, tag_id FROM part_tag_ids WHERE project_id = ? ORDER BY part_id, tag_id')
+      .prepare(
+        'SELECT part_id, tag_id FROM part_tag_ids WHERE project_id = ? ORDER BY part_id, tag_id'
+      )
       .all(projectId) as Array<{ part_id: string; tag_id: string }>;
 
     const tagIds = new Map<string, string[]>();
@@ -635,11 +637,13 @@ export class SqliteStorageProvider implements StorageProvider {
       'INSERT INTO part_tag_ids (project_id, part_id, tag_id) VALUES (?, ?, ?)'
     );
 
-    const insertMany = db.transaction((associations: Array<{ projectId: string; partId: string; tagId: string }>) => {
-      for (const { projectId, partId, tagId } of associations) {
-        insert.run(projectId, partId, tagId);
+    const insertMany = db.transaction(
+      (associations: Array<{ projectId: string; partId: string; tagId: string }>) => {
+        for (const { projectId, partId, tagId } of associations) {
+          insert.run(projectId, partId, tagId);
+        }
       }
-    });
+    );
 
     const all: Array<{ projectId: string; partId: string; tagId: string }> = [];
     for (const part of snapshot.parts) {
@@ -670,11 +674,13 @@ export class SqliteStorageProvider implements StorageProvider {
       'INSERT INTO version_tag_ids (project_id, version_id, tag_id) VALUES (?, ?, ?)'
     );
 
-    const insertMany = db.transaction((associations: Array<{ projectId: string; versionId: string; tagId: string }>) => {
-      for (const { projectId, versionId, tagId } of associations) {
-        insert.run(projectId, versionId, tagId);
+    const insertMany = db.transaction(
+      (associations: Array<{ projectId: string; versionId: string; tagId: string }>) => {
+        for (const { projectId, versionId, tagId } of associations) {
+          insert.run(projectId, versionId, tagId);
+        }
       }
-    });
+    );
 
     const all: Array<{ projectId: string; versionId: string; tagId: string }> = [];
     for (const version of snapshot.versions) {

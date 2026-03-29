@@ -11,7 +11,13 @@ import type {
 } from '../models/base.js';
 import type { ProjectInit } from '../models/project.js';
 import { InMemoryStorageProvider } from '../storages/in-memory/in-memory-storage.js';
-import { UnknownVersionReferenceError, VersionReassignmentError } from './errors.js';
+import {
+  PartAlreadyDeletedError,
+  ReferencedByComboError,
+  UnknownVersionReferenceError,
+  VersionAlreadyDeletedError,
+  VersionReassignmentError,
+} from './errors.js';
 import { buildProjectSnapshot } from './project-snapshot-builder.js';
 import { ProjectHandle } from './project-handle.js';
 import { TestClock } from './mocks/test-clock.js';
@@ -812,6 +818,164 @@ describe('ProjectHandle', () => {
       );
 
       await expect(handle.deletePart('engine' as PartId)).rejects.toThrow(/referenced by.*combo/);
+    });
+
+    it('throws ReferencedByComboError when part is referenced by combo with correct properties', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Part In Combo',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      const error = await handle.deletePart('engine' as PartId).catch((err) => err);
+
+      expect(error).toBeInstanceOf(ReferencedByComboError);
+      expect(error.code).toBe('REFERENCED_BY_COMBO');
+      expect(error.partId).toBe('engine' as PartId);
+      expect(error.versionId).toBeUndefined();
+      expect(error.comboCount).toBe(1);
+      expect(error.referencingCombos).toEqual(['baseline' as ComboId]);
+    });
+  });
+
+  describe('deletePartVersion custom exceptions', () => {
+    it('throws ReferencedByComboError when version is referenced by combo with correct properties', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Version In Combo',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      const error = await handle.deletePartVersion('v1' as PartVersionId).catch((err) => err);
+
+      expect(error).toBeInstanceOf(ReferencedByComboError);
+      expect(error.code).toBe('REFERENCED_BY_COMBO');
+      expect(error.versionId).toBe('v1' as PartVersionId);
+      expect(error.partId).toBeUndefined();
+      expect(error.comboCount).toBe(1);
+      expect(error.referencingCombos).toEqual(['baseline' as ComboId]);
+    });
+
+    it('throws VersionAlreadyDeletedError when version is already soft-deleted', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Delete Version Twice',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      // First delete
+      await handle.deletePartVersion('v1' as PartVersionId);
+
+      // Second delete should throw VersionAlreadyDeletedError
+      const error = await handle.deletePartVersion('v1' as PartVersionId).catch((err) => err);
+
+      expect(error).toBeInstanceOf(VersionAlreadyDeletedError);
+      expect(error.code).toBe('VERSION_ALREADY_DELETED');
+      expect(error.versionId).toBe('v1' as PartVersionId);
+    });
+  });
+
+  describe('deletePart custom exceptions', () => {
+    it('throws PartAlreadyDeletedError when part is already soft-deleted', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Delete Part Twice',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      // First delete
+      await handle.deletePart('engine' as PartId);
+
+      // Second delete should throw PartAlreadyDeletedError
+      const error = await handle.deletePart('engine' as PartId).catch((err) => err);
+
+      expect(error).toBeInstanceOf(PartAlreadyDeletedError);
+      expect(error.code).toBe('PART_ALREADY_DELETED');
+      expect(error.partId).toBe('engine' as PartId);
     });
   });
 
@@ -1859,7 +2023,11 @@ describe('ProjectHandle', () => {
         const productionTag = await handle.createTag({ name: 'production', type: 'version' });
         const testedTag = await handle.createTag({ name: 'tested', type: 'version' });
 
-        await handle.addVersionTagIds(versionIds.v1, [stableTag.id, productionTag.id, testedTag.id]);
+        await handle.addVersionTagIds(versionIds.v1, [
+          stableTag.id,
+          productionTag.id,
+          testedTag.id,
+        ]);
         await handle.removeVersionTagIds(versionIds.v1, [productionTag.id]);
 
         const version = handle.getVersionById(versionIds.v1);
@@ -2037,9 +2205,7 @@ describe('ProjectHandle', () => {
         const { handle } = await queryTestSetup();
         await handle.createTag({ name: 'stable', type: 'version' });
 
-        await expect(
-          handle.createTag({ name: 'stable', type: 'version' })
-        ).rejects.toThrow();
+        await expect(handle.createTag({ name: 'stable', type: 'version' })).rejects.toThrow();
       });
 
       it('should allow same name for different tag types', async () => {

@@ -1,11 +1,4 @@
-import type {
-  AdapterId,
-  MetadataRecord,
-  OwnerInfo,
-  PartId,
-  PartVersionId,
-  TagId,
-} from './base.js';
+import type { AdapterId, MetadataRecord, OwnerInfo, PartId, PartVersionId, TagId } from './base.js';
 
 /**
  * Metadata key for soft delete timestamp on parts and versions.

@@ -219,24 +219,50 @@ Clean operations permanently remove items from the snapshot. This is useful for 
 When parts or versions are no longer needed, you can delete them. The library enforces referential integrity—parts and versions referenced by any combo cannot be deleted:
 
 ```ts
+import {
+  ReferencedByComboError,
+  PartAlreadyDeletedError,
+  VersionAlreadyDeletedError,
+} from 'version-container';
+
 // This will fail if the version is referenced by a combo
-await registry.deletePartVersion(handle.projectId, engineV1Id);
+try {
+  await registry.deletePartVersion(handle.projectId, engineV1Id);
+} catch (error) {
+  if (error instanceof ReferencedByComboError) {
+    console.error(
+      `Version is referenced by ${error.comboCount} combo(s):`,
+      error.referencingCombos
+    );
+    // First, update or remove combos that reference it
+    await registry.updateCombo(handle.projectId, baselineComboId, (combo) => ({
+      ...combo,
+      bindings: combo.bindings.map((b) =>
+        b.versionId === engineV1Id
+          ? { ...b, versionId: newVersionId }
+          : b
+      ),
+    }));
 
-// First, update or remove combos that reference it
-await registry.updateCombo(handle.projectId, baselineComboId, (combo) => ({
-  ...combo,
-  bindings: combo.bindings.map((b) =>
-    b.versionId === engineV1Id
-      ? { ...b, versionId: newVersionId }
-      : b
-  ),
-}));
-
-// Now the deletion succeeds (soft delete - marked as deleted)
-await registry.deletePartVersion(handle.projectId, engineV1Id);
+    // Now the deletion succeeds (soft delete - marked as deleted)
+    await registry.deletePartVersion(handle.projectId, engineV1Id);
+  }
+}
 
 // Delete a part (cascades to mark all its versions as deleted)
-await registry.deletePart(handle.projectId, enginePartId);
+try {
+  await registry.deletePart(handle.projectId, enginePartId);
+} catch (error) {
+  if (error instanceof ReferencedByComboError) {
+    console.error(
+      `Part is referenced by ${error.comboCount} combo(s):`,
+      error.referencingCombos
+    );
+    // Handle combo references before deleting
+  } else if (error instanceof PartAlreadyDeletedError) {
+    console.error('Part is already soft-deleted');
+  }
+}
 ```
 
 ### 8. Use the low-level update API
@@ -528,6 +554,7 @@ All library errors extend from `VersionContainerError`, enabling type-safe error
 import {
   PartNotFoundError,
   VersionNotFoundError,
+  ReferencedByComboError,
   VersionContainerError,
   type VersionContainerErrorCode,
 } from 'version-container';
@@ -538,6 +565,14 @@ try {
   if (error instanceof PartNotFoundError) {
     // Handle missing part - error.partId is available
     console.error(`Part ${error.partId} not found`);
+  } else if (error instanceof ReferencedByComboError) {
+    // Handle combo reference constraint
+    console.error(
+      `Cannot delete: referenced by ${error.comboCount} combo(s)`,
+      error.referencingCombos
+    );
+    // For parts: error.partId is available
+    // For versions: error.versionId is available
   } else if (error instanceof VersionContainerError) {
     // Catch-all for any version-container error
     console.error(`Error code: ${error.code}, entity: ${error.entityId}`);
@@ -568,6 +603,7 @@ try {
 | `DuplicateIdentifierError` | `DUPLICATE_IDENTIFIER` | Duplicate ID in snapshot build |
 | `PartAlreadyDeletedError` | `PART_ALREADY_DELETED` | Part is already soft-deleted |
 | `VersionAlreadyDeletedError` | `VERSION_ALREADY_DELETED` | Version is already soft-deleted |
+| `ReferencedByComboError` | `REFERENCED_BY_COMBO` | Part/version is referenced by one or more combos |
 | `ProjectAccessDeniedError` | `PROJECT_ACCESS_DENIED` | User doesn't match project owner |
 
 All errors include a `code` property for programmatic handling and an `entityId` property with the relevant identifier.

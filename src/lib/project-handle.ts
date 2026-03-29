@@ -18,12 +18,15 @@ import {
   ComboNotFoundError,
   DuplicateIdentifierError,
   IdentifierChangeError,
+  PartAlreadyDeletedError,
   PartAlreadyExistsError,
   PartNotFoundError,
   ProjectClosedError,
   ProjectNotInStorageError,
+  ReferencedByComboError,
   UnknownPartReferenceError,
   UnknownVersionReferenceError,
+  VersionAlreadyDeletedError,
   VersionAlreadyExistsError,
   VersionNotFoundError,
   VersionReassignmentError,
@@ -454,7 +457,10 @@ export class ProjectHandle {
    * @returns The updated version
    * @throws Error if version not found
    */
-  async removeVersionTagIds(versionId: PartVersionId, tagIds: readonly TagId[]): Promise<PartVersion> {
+  async removeVersionTagIds(
+    versionId: PartVersionId,
+    tagIds: readonly TagId[]
+  ): Promise<PartVersion> {
     const version = this.getVersionById(versionId);
     if (!version) {
       throw new VersionNotFoundError(versionId);
@@ -482,7 +488,10 @@ export class ProjectHandle {
    * @returns The updated version
    * @throws Error if version not found
    */
-  async setVersionTagIds(versionId: PartVersionId, tagIds?: readonly TagId[]): Promise<PartVersion> {
+  async setVersionTagIds(
+    versionId: PartVersionId,
+    tagIds?: readonly TagId[]
+  ): Promise<PartVersion> {
     const version = this.getVersionById(versionId);
     if (!version) {
       throw new VersionNotFoundError(versionId);
@@ -1352,7 +1361,7 @@ export class ProjectHandle {
 
       // Check if already soft-deleted
       if (this.isVersionDeleted(previous)) {
-        throw new Error(`Version ${versionId as string} is already deleted.`);
+        throw new VersionAlreadyDeletedError(versionId);
       }
 
       // Check if version is referenced by any combo
@@ -1360,8 +1369,11 @@ export class ProjectHandle {
         combo.bindings.some((binding) => binding.versionId === versionId)
       );
       if (combosUsingVersion.length > 0) {
-        throw new Error(
-          `Cannot delete version ${versionId as string}: it is referenced by ${combosUsingVersion.length} combo(s).`
+        const referencingComboIds = combosUsingVersion.map((c) => c.id);
+        throw ReferencedByComboError.forVersion(
+          versionId,
+          combosUsingVersion.length,
+          referencingComboIds
         );
       }
 
@@ -1422,7 +1434,7 @@ export class ProjectHandle {
 
       // Check if already soft-deleted
       if (this.isPartDeleted(previous)) {
-        throw new Error(`Part ${partId as string} is already deleted.`);
+        throw new PartAlreadyDeletedError(partId);
       }
 
       // Check if part is referenced by any combo
@@ -1430,9 +1442,8 @@ export class ProjectHandle {
         combo.bindings.some((binding) => binding.partId === partId)
       );
       if (combosUsingPart.length > 0) {
-        throw new Error(
-          `Cannot delete part ${partId as string}: it is referenced by ${combosUsingPart.length} combo(s).`
-        );
+        const referencingComboIds = combosUsingPart.map((c) => c.id);
+        throw ReferencedByComboError.forPart(partId, combosUsingPart.length, referencingComboIds);
       }
 
       // Soft delete by setting deletedAt in metadata

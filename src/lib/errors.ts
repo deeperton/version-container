@@ -55,7 +55,8 @@ export type VersionContainerErrorCode =
   | 'DUPLICATE_IDENTIFIER'
   | 'PART_ALREADY_DELETED'
   | 'VERSION_ALREADY_DELETED'
-  | 'PROJECT_ACCESS_DENIED';
+  | 'PROJECT_ACCESS_DENIED'
+  | 'REFERENCED_BY_COMBO';
 
 // ============================================================================
 // NotFoundError subclasses
@@ -328,5 +329,60 @@ export class VersionAlreadyDeletedError extends VersionContainerError {
   constructor(versionId: PartVersionId) {
     super(`Version ${versionId as string} is already deleted.`, versionId as string);
     this.versionId = versionId;
+  }
+}
+
+/**
+ * Thrown when attempting to delete a part or version that is referenced by one or more combos.
+ */
+export class ReferencedByComboError extends VersionContainerError {
+  readonly code = 'REFERENCED_BY_COMBO' as const;
+  readonly partId?: PartId;
+  readonly versionId?: PartVersionId;
+  readonly comboCount: number;
+  readonly referencingCombos: readonly ComboId[];
+
+  private constructor(
+    entityId: { partId: PartId } | { versionId: PartVersionId },
+    comboCount: number,
+    referencingCombos: readonly ComboId[]
+  ) {
+    const isPart = 'partId' in entityId;
+    const idString = isPart ? (entityId.partId as string) : (entityId.versionId as string);
+    const entityType = isPart ? 'part' : 'version';
+    super(
+      `Cannot delete ${entityType} ${idString}: it is referenced by ${comboCount} combo(s).`,
+      idString
+    );
+
+    if (isPart) {
+      this.partId = entityId.partId;
+    } else {
+      this.versionId = entityId.versionId;
+    }
+    this.comboCount = comboCount;
+    this.referencingCombos = referencingCombos;
+  }
+
+  /**
+   * Creates an error for a part referenced by combos.
+   */
+  static forPart(
+    partId: PartId,
+    comboCount: number,
+    referencingCombos: readonly ComboId[]
+  ): ReferencedByComboError {
+    return new ReferencedByComboError({ partId }, comboCount, referencingCombos);
+  }
+
+  /**
+   * Creates an error for a version referenced by combos.
+   */
+  static forVersion(
+    versionId: PartVersionId,
+    comboCount: number,
+    referencingCombos: readonly ComboId[]
+  ): ReferencedByComboError {
+    return new ReferencedByComboError({ versionId }, comboCount, referencingCombos);
   }
 }

@@ -1,5 +1,5 @@
 ---
-name: Using version-container library
+name: version-container
 description: dealing with a typescript library for managing projects composed of parts, versions, and version combos with pluggable storage backends
 ---
 
