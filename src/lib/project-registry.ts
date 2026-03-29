@@ -274,18 +274,32 @@ export class ProjectRegistry {
 
   /**
    * Deletes a version from the specified project.
+   * @param projectId - The project containing the version
+   * @param versionId - The version to delete
+   * @param options - Optional deletion options
    */
-  async deletePartVersion(projectId: ProjectId, versionId: PartVersionId): Promise<PartVersion> {
+  async deletePartVersion(
+    projectId: ProjectId,
+    versionId: PartVersionId,
+    options?: { force?: boolean }
+  ): Promise<PartVersion> {
     const handle = await this.load(projectId);
-    return handle.deletePartVersion(versionId);
+    return handle.deletePartVersion(versionId, options);
   }
 
   /**
    * Deletes a part (and all its versions) from the specified project.
+   * @param projectId - The project containing the part
+   * @param partId - The part to delete
+   * @param options - Optional deletion options
    */
-  async deletePart(projectId: ProjectId, partId: PartId): Promise<PartDefinition> {
+  async deletePart(
+    projectId: ProjectId,
+    partId: PartId,
+    options?: { force?: boolean }
+  ): Promise<PartDefinition> {
     const handle = await this.load(projectId);
-    return handle.deletePart(partId);
+    return handle.deletePart(partId, options);
   }
 
   /**

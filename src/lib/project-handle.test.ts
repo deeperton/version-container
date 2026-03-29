@@ -977,6 +977,108 @@ describe('ProjectHandle', () => {
       expect(error.code).toBe('PART_ALREADY_DELETED');
       expect(error.partId).toBe('engine' as PartId);
     });
+
+    it('allows deleting part referenced by combo when force: true', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Force Delete Part',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      // Should succeed with force: true
+      const removed = await handle.deletePart('engine' as PartId, { force: true });
+
+      expect(removed.id).toBe('engine' as PartId);
+
+      // Part should be soft-deleted
+      const deletedPart = handle.getPartById('engine' as PartId, { includeDeleted: true });
+      expect(deletedPart?.metadata?.deletedAt).toBeDefined();
+
+      // Combo should still exist
+      const combo = handle.getComboById('baseline' as ComboId);
+      expect(combo).toBeDefined();
+      expect(combo?.bindings).toHaveLength(1);
+      expect(combo?.bindings[0]?.partId).toBe('engine' as PartId);
+    });
+
+    it('allows deleting version referenced by combo when force: true', async () => {
+      const clock = new TestClock(initialTime);
+      const { handle } = await createHandle(
+        {
+          name: 'Force Delete Version',
+          parts: [
+            {
+              id: 'engine' as PartId,
+              name: 'Engine',
+              adapterId: 'adapter' as AdapterId,
+              versions: [
+                {
+                  id: 'v1' as PartVersionId,
+                  locator: { uri: 'memory://engine@1.0.0' },
+                },
+              ],
+            },
+          ],
+          combos: [
+            {
+              id: 'baseline' as ComboId,
+              name: 'Baseline',
+              bindings: [
+                {
+                  partId: 'engine' as PartId,
+                  versionId: 'v1' as PartVersionId,
+                },
+              ],
+            },
+          ],
+        },
+        clock
+      );
+
+      // Should succeed with force: true
+      const removed = await handle.deletePartVersion('v1' as PartVersionId, { force: true });
+
+      expect(removed.id).toBe('v1' as PartVersionId);
+
+      // Version should be soft-deleted
+      const deletedVersion = handle.getVersionById('v1' as PartVersionId, {
+        includeDeleted: true,
+      });
+      expect(deletedVersion?.metadata?.deletedAt).toBeDefined();
+
+      // Combo should still exist with the reference
+      const combo = handle.getComboById('baseline' as ComboId);
+      expect(combo).toBeDefined();
+      expect(combo?.bindings).toHaveLength(1);
+      expect(combo?.bindings[0]?.versionId).toBe('v1' as PartVersionId);
+    });
   });
 
   describe('addCombo', () => {

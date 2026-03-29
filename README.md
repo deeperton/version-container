@@ -216,7 +216,7 @@ Clean operations permanently remove items from the snapshot. This is useful for 
 
 ### 7. Delete obsolete parts and versions
 
-When parts or versions are no longer needed, you can delete them. The library enforces referential integrity—parts and versions referenced by any combo cannot be deleted:
+When parts or versions are no longer needed, you can delete them. By default, the library enforces referential integrity—parts and versions referenced by any combo cannot be deleted:
 
 ```ts
 import {
@@ -227,7 +227,7 @@ import {
 
 // This will fail if the version is referenced by a combo
 try {
-  await registry.deletePartVersion(handle.projectId, engineV1Id);
+  await registry.deletePartVersion(projectId, engineV1Id);
 } catch (error) {
   if (error instanceof ReferencedByComboError) {
     console.error(
@@ -235,7 +235,7 @@ try {
       error.referencingCombos
     );
     // First, update or remove combos that reference it
-    await registry.updateCombo(handle.projectId, baselineComboId, (combo) => ({
+    await registry.updateCombo(projectId, baselineComboId, (combo) => ({
       ...combo,
       bindings: combo.bindings.map((b) =>
         b.versionId === engineV1Id
@@ -245,13 +245,13 @@ try {
     }));
 
     // Now the deletion succeeds (soft delete - marked as deleted)
-    await registry.deletePartVersion(handle.projectId, engineV1Id);
+    await registry.deletePartVersion(projectId, engineV1Id);
   }
 }
 
 // Delete a part (cascades to mark all its versions as deleted)
 try {
-  await registry.deletePart(handle.projectId, enginePartId);
+  await registry.deletePart(projectId, enginePartId);
 } catch (error) {
   if (error instanceof ReferencedByComboError) {
     console.error(
@@ -264,6 +264,41 @@ try {
   }
 }
 ```
+
+#### Force deletion
+
+If you want to bypass the combo reference check, use the `force` option. This allows soft-deletion even when parts or versions are referenced by combos:
+
+```ts
+// Force delete a version even if referenced by combos
+await registry.deletePartVersion(projectId, engineV1Id, { force: true });
+
+// Force delete a part even if referenced by combos
+await registry.deletePart(projectId, enginePartId, { force: true });
+
+// After force deletion, combos still reference the deleted items
+const combo = await registry.getComboById(projectId, baselineComboId);
+console.log(combo.bindings[0].versionId); // Still references engineV1Id
+
+// The version is soft-deleted but the combo reference remains
+const version = await registry.getVersionById(projectId, engineV1Id);
+console.log(version); // undefined (deleted items excluded by default)
+
+// Include deleted items to see it
+const deletedVersion = await registry.getVersionById(
+  projectId,
+  engineV1Id,
+  { includeDeleted: true }
+);
+console.log(deletedVersion?.metadata?.deletedAt); // ISO timestamp
+```
+
+**When to use force deletion:**
+- When you want to mark a version as deprecated but keep historical combo records
+- When performing cleanup operations and want to handle combo references separately
+- When building custom workflows that manage combo references after deletion
+
+**Warning:** Force deletion may leave combos with references to deleted parts/versions. Your application should handle this appropriately by filtering combos or updating bindings as needed.
 
 ### 8. Use the low-level update API
 
@@ -1169,11 +1204,11 @@ Key exports available today:
 | **Part Management** | |
 | `addPart(projectId, init)` | Add a part to a project |
 | `updatePart(projectId, id, mutator)` | Update a part |
-| `deletePart(projectId, id)` | Soft delete a part (cascades to versions) |
+| `deletePart(projectId, id, options?)` | Soft delete a part (cascades to versions, `options.force` bypasses combo check) |
 | **Version Management** | |
 | `addPartVersion(projectId, partId, init)` | Add a version to a part |
 | `updatePartVersion(projectId, id, mutator)` | Update a version |
-| `deletePartVersion(projectId, id)` | Soft delete a version |
+| `deletePartVersion(projectId, id, options?)` | Soft delete a version (`options.force` bypasses combo check) |
 | **Combo Management** | |
 | `addCombo(projectId, init)` | Add a combo |
 | `updateCombo(projectId, id, mutator)` | Update a combo |

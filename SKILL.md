@@ -604,6 +604,85 @@ const allParts = await registry.findParts(handle.projectId, {
 const removed = await registry.cleanDeletedVersions(handle.projectId);
 ```
 
+#### Force Deletion
+
+By default, the library prevents deletion of parts/versions referenced by combos. Use `force: true` to bypass this check:
+
+```typescript
+// Force delete even if referenced by combos
+await registry.deletePartVersion(handle.projectId, v1Id, { force: true });
+await registry.deletePart(handle.projectId, enginePartId, { force: true });
+
+// Useful for:
+// - Deprecation workflows (keep historical combo records)
+// - Cleanup operations (handle combo references separately)
+// - Migration scenarios (need more control over deletion order)
+
+// Warning: Combos may reference deleted items after force deletion
+// Your application should filter or update combo bindings as needed
+```
+
+#### Handling Combo References During Deletion
+
+**Option 1: Update combos before deletion (safe approach)**
+
+```typescript
+import { ReferencedByComboError } from 'version-container';
+
+try {
+  await registry.deletePartVersion(projectId, v1Id);
+} catch (error) {
+  if (error instanceof ReferencedByComboError) {
+    // Find combos using this version
+    const affectedCombos = error.referencingCombos;
+
+    // Update each combo to use a different version
+    for (const comboId of affectedCombos) {
+      await registry.updateCombo(projectId, comboId, (combo) => ({
+        ...combo,
+        bindings: combo.bindings.map((binding) =>
+          binding.versionId === v1Id
+            ? { ...binding, versionId: v2Id } // Use newer version
+            : binding
+        ),
+      }));
+    }
+
+    // Now deletion succeeds
+    await registry.deletePartVersion(projectId, v1Id);
+  }
+}
+```
+
+**Option 2: Force delete and filter combos (flexible approach)**
+
+```typescript
+// Force delete for deprecation workflow
+await registry.deletePartVersion(projectId, v1Id, { force: true });
+
+// Combos still reference the deleted version
+const combo = await registry.getComboById(projectId, comboId);
+console.log(combo.bindings[0].versionId); // Still v1Id
+
+// Filter out combos with deleted versions when displaying
+const allCombos = await registry.findCombos(projectId);
+const validCombos = allCombos.filter((comboId) => {
+  const combo = registry.getComboById(projectId, comboId);
+  return combo.bindings.every((binding) => {
+    const version = registry.getVersionById(projectId, binding.versionId);
+    return version !== undefined; // Exclude deleted versions
+  });
+});
+
+// Or explicitly update combos later
+await registry.updateCombo(projectId, comboId, (combo) => ({
+  ...combo,
+  bindings: combo.bindings.filter(
+    (binding) => binding.versionId !== v1Id
+  ),
+}));
+```
+
 ### Managing Project Lifecycle
 
 ```typescript
@@ -722,30 +801,63 @@ Available events: `project:created`, `project:loaded`, `project:updated`, `proje
 
 ## Error Handling
 
+All library errors extend from `VersionContainerError` for type-safe error handling:
+
 ```typescript
 import {
   PartNotFoundError,
   VersionNotFoundError,
   ComboNotFoundError,
+  PartAlreadyDeletedError,
+  VersionAlreadyDeletedError,
+  ReferencedByComboError,
   ProjectAccessDeniedError,
   VersionContainerError,
 } from 'version-container';
 
 try {
-  await registry.load(projectId, createUserId('user-999'));
+  await registry.deletePart(projectId, partId);
 } catch (error) {
-  if (error instanceof ProjectAccessDeniedError) {
+  if (error instanceof ReferencedByComboError) {
+    // Part/version is referenced by combos
+    console.log(
+      `Cannot delete: referenced by ${error.comboCount} combo(s)`,
+      error.referencingCombos
+    );
+    // Handle combo references first, then retry with force: true
+    await registry.deletePart(projectId, partId, { force: true });
+  } else if (error instanceof PartAlreadyDeletedError) {
+    console.log('Part is already soft-deleted:', error.partId);
+  } else if (error instanceof VersionAlreadyDeletedError) {
+    console.log('Version is already soft-deleted:', error.versionId);
+  } else if (error instanceof ProjectAccessDeniedError) {
     console.log('Access denied for project:', error.projectId);
     console.log('Required owner:', error.requiredUserId);
   } else if (error instanceof PartNotFoundError) {
     console.log('Part not found:', error.partId);
   } else if (error instanceof VersionContainerError) {
+    // Catch-all for any version-container error
     console.log('Container error:', error.code, error.entityId);
   } else {
-    throw error;
+    throw error; // Re-throw unexpected errors
   }
 }
 ```
+
+### Common Error Types
+
+| Error | When Thrown | Key Properties |
+|-------|------------|----------------|
+| `PartNotFoundError` | Part doesn't exist | `partId` |
+| `VersionNotFoundError` | Version doesn't exist | `versionId` |
+| `ComboNotFoundError` | Combo doesn't exist | `comboId` |
+| `PartAlreadyDeletedError` | Part is already soft-deleted | `partId` |
+| `VersionAlreadyDeletedError` | Version is already soft-deleted | `versionId` |
+| `ReferencedByComboError` | Part/version referenced by combos | `partId` \| `versionId`, `comboCount`, `referencingCombos[]` |
+| `ProjectAccessDeniedError` | User doesn't match project owner | `projectId`, `requiredUserId` |
+| `PartAlreadyExistsError` | Part already exists | `partId` |
+| `VersionAlreadyExistsError` | Version already exists | `versionId` |
+| `ComboAlreadyExistsError` | Combo already exists | `comboId` |
 
 ## Best Practices
 
@@ -753,10 +865,12 @@ try {
 2. **Use owner tracking** for audit trails and access control on all entities
 3. **Prefer registry methods** over direct `handle.update()` for structured changes
 4. **Use soft delete** for data that might need recovery
-5. **Subscribe to events** for reactive side effects
-6. **Close projects** when done to release resources
-7. **Use appropriate storage** for your environment
-8. **Handle `VersionContainerError`** for type-safe error handling
+5. **Handle combo references explicitly** - Update or remove combos before deletion, or use `force: true` intentionally
+6. **Subscribe to events** for reactive side effects
+7. **Close projects** when done to release resources
+8. **Use appropriate storage** for your environment
+9. **Handle `VersionContainerError`** for type-safe error handling
+10. **Use `force: true` judiciously** - Only when you understand the implications for combo references
 
 ## File Structure Reference
 

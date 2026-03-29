@@ -1348,9 +1348,15 @@ export class ProjectHandle {
 
   /**
    * Deletes a version from the project.
-   * Throws an error if the version is referenced by any combo.
+   * Throws an error if the version is referenced by any combo unless `force: true` is set.
+   * @param versionId - The version to delete
+   * @param options - Optional deletion options
+   * @param options.force - If true, bypass the combo reference check
    */
-  async deletePartVersion(versionId: PartVersionId): Promise<PartVersion> {
+  async deletePartVersion(
+    versionId: PartVersionId,
+    options?: { force?: boolean }
+  ): Promise<PartVersion> {
     const result = await this.commitMutation<PartVersion>((snapshot) => {
       const index = snapshot.versions.findIndex((version) => version.id === versionId);
       if (index === -1) {
@@ -1364,17 +1370,19 @@ export class ProjectHandle {
         throw new VersionAlreadyDeletedError(versionId);
       }
 
-      // Check if version is referenced by any combo
-      const combosUsingVersion = snapshot.combos.filter((combo) =>
-        combo.bindings.some((binding) => binding.versionId === versionId)
-      );
-      if (combosUsingVersion.length > 0) {
-        const referencingComboIds = combosUsingVersion.map((c) => c.id);
-        throw ReferencedByComboError.forVersion(
-          versionId,
-          combosUsingVersion.length,
-          referencingComboIds
+      // Check if version is referenced by any combo (unless force is true)
+      if (!options?.force) {
+        const combosUsingVersion = snapshot.combos.filter((combo) =>
+          combo.bindings.some((binding) => binding.versionId === versionId)
         );
+        if (combosUsingVersion.length > 0) {
+          const referencingComboIds = combosUsingVersion.map((c) => c.id);
+          throw ReferencedByComboError.forVersion(
+            versionId,
+            combosUsingVersion.length,
+            referencingComboIds
+          );
+        }
       }
 
       // Soft delete by setting deletedAt in metadata
@@ -1421,9 +1429,12 @@ export class ProjectHandle {
 
   /**
    * Deletes a part and all its versions from the project.
-   * Throws an error if the part is referenced by any combo.
+   * Throws an error if the part is referenced by any combo unless `force: true` is set.
+   * @param partId - The part to delete
+   * @param options - Optional deletion options
+   * @param options.force - If true, bypass the combo reference check
    */
-  async deletePart(partId: PartId): Promise<PartDefinition> {
+  async deletePart(partId: PartId, options?: { force?: boolean }): Promise<PartDefinition> {
     const result = await this.commitMutation<PartDefinition>((snapshot) => {
       const index = snapshot.parts.findIndex((part) => part.id === partId);
       if (index === -1) {
@@ -1437,13 +1448,15 @@ export class ProjectHandle {
         throw new PartAlreadyDeletedError(partId);
       }
 
-      // Check if part is referenced by any combo
-      const combosUsingPart = snapshot.combos.filter((combo) =>
-        combo.bindings.some((binding) => binding.partId === partId)
-      );
-      if (combosUsingPart.length > 0) {
-        const referencingComboIds = combosUsingPart.map((c) => c.id);
-        throw ReferencedByComboError.forPart(partId, combosUsingPart.length, referencingComboIds);
+      // Check if part is referenced by any combo (unless force is true)
+      if (!options?.force) {
+        const combosUsingPart = snapshot.combos.filter((combo) =>
+          combo.bindings.some((binding) => binding.partId === partId)
+        );
+        if (combosUsingPart.length > 0) {
+          const referencingComboIds = combosUsingPart.map((c) => c.id);
+          throw ReferencedByComboError.forPart(partId, combosUsingPart.length, referencingComboIds);
+        }
       }
 
       // Soft delete by setting deletedAt in metadata
