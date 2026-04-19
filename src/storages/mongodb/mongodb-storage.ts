@@ -184,8 +184,8 @@ export class MongoDbStorageProvider implements StorageProvider {
       .toArray();
 
     return snapshots.map((snapshot) => {
-      const { id, name, description, updatedAt } = snapshot.project;
-      return { id, name, description, updatedAt };
+      const { id, name, description, updatedAt, owner, updatedBy } = snapshot.project as any;
+      return { id, name, description, updatedAt, owner, updatedBy };
     });
   }
 
@@ -382,23 +382,23 @@ export class MongoDbStorageProvider implements StorageProvider {
 
       // Extract combo latest info from aggregation result
       const comboLatestInfo = {
-        comboLatestUpdateAt: snapshot.comboLatestUpdateAt ?? undefined,
+        comboLatestUpdateAt: (snapshot.comboLatestUpdateAt as ISO8601Timestamp) ?? undefined,
         comboLatestName: snapshot.comboLatestName?.name ?? undefined,
-        comboLatestUpdateBy: snapshot.comboLatestUpdateBy?.updatedBy ?? undefined,
+        comboLatestUpdateBy: (snapshot.comboLatestUpdateBy?.updatedBy as OwnerInfo) ?? undefined,
       };
 
       return {
         id: snapshot.project.id,
         name: snapshot.project.name,
         description: snapshot.project.description,
-        owner: snapshot.project.owner as OwnerInfo | undefined,
-        updatedBy: snapshot.project.updatedBy as OwnerInfo | undefined,
+        owner: snapshot.project.owner as any,
+        updatedBy: snapshot.project.updatedBy as any,
         createdAt: snapshot.project.createdAt,
         updatedAt: snapshot.project.updatedAt,
         partsCount: snapshot.partsCount,
         combosCount: snapshot.combosCount,
         ...comboLatestInfo,
-      };
+      } as ProjectListSummary;
     });
 
     // Calculate pagination metadata
