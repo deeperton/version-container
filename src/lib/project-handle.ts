@@ -3,7 +3,15 @@ import type { PartDefinition, PartInit, PartVersion, PartVersionInit } from '../
 import type { VersionBinding } from '../models/part.js';
 import type { ProjectSnapshot } from '../models/project.js';
 import type { TagDefinition, TagInit } from '../models/tag.js';
-import type { ComboId, PartId, PartVersionId, ProjectId, TagId, TagType } from '../models/base.js';
+import type {
+  ComboId,
+  OwnerInfo,
+  PartId,
+  PartVersionId,
+  ProjectId,
+  TagId,
+  TagType,
+} from '../models/base.js';
 import type { VersionCombo, VersionComboInit } from '../models/combo.js';
 import type {
   ComboFilter,
@@ -429,10 +437,15 @@ export class ProjectHandle {
    * Adds tag IDs to an existing version.
    * @param versionId - The version to add tags to
    * @param tagIds - Tag IDs to add (duplicates are ignored)
+   * @param user - Optional user context for tracking who made this change
    * @returns The updated version
    * @throws Error if version not found
    */
-  async addVersionTagIds(versionId: PartVersionId, tagIds: readonly TagId[]): Promise<PartVersion> {
+  async addVersionTagIds(
+    versionId: PartVersionId,
+    tagIds: readonly TagId[],
+    user?: OwnerInfo
+  ): Promise<PartVersion> {
     const version = this.getVersionById(versionId);
     if (!version) {
       throw new VersionNotFoundError(versionId);
@@ -447,19 +460,21 @@ export class ProjectHandle {
     return this.updatePartVersion(versionId, (existing) => ({
       ...existing,
       tagIds: [...currentTagIds, ...tagIdsToAdd],
-    }));
+    }), user);
   }
 
   /**
    * Removes tag IDs from an existing version.
    * @param versionId - The version to remove tags from
    * @param tagIds - Tag IDs to remove
+   * @param user - Optional user context for tracking who made this change
    * @returns The updated version
    * @throws Error if version not found
    */
   async removeVersionTagIds(
     versionId: PartVersionId,
-    tagIds: readonly TagId[]
+    tagIds: readonly TagId[],
+    user?: OwnerInfo
   ): Promise<PartVersion> {
     const version = this.getVersionById(versionId);
     if (!version) {
@@ -478,19 +493,21 @@ export class ProjectHandle {
     return this.updatePartVersion(versionId, (existing) => ({
       ...existing,
       tagIds: updatedTagIds.length > 0 ? updatedTagIds : undefined,
-    }));
+    }), user);
   }
 
   /**
    * Sets all tag IDs on an existing version, replacing any existing tags.
    * @param versionId - The version to set tags on
    * @param tagIds - Tag IDs to set (undefined or empty array removes all tags)
+   * @param user - Optional user context for tracking who made this change
    * @returns The updated version
    * @throws Error if version not found
    */
   async setVersionTagIds(
     versionId: PartVersionId,
-    tagIds?: readonly TagId[]
+    tagIds?: readonly TagId[],
+    user?: OwnerInfo
   ): Promise<PartVersion> {
     const version = this.getVersionById(versionId);
     if (!version) {
@@ -507,7 +524,7 @@ export class ProjectHandle {
     return this.updatePartVersion(versionId, (existing) => ({
       ...existing,
       tagIds: normalizedTagIds,
-    }));
+    }), user);
   }
 
   /**
@@ -559,10 +576,15 @@ export class ProjectHandle {
    * Adds tag IDs to an existing part.
    * @param partId - The part to add tags to
    * @param tagIds - Tag IDs to add (duplicates are ignored)
+   * @param user - Optional user context for tracking who made this change
    * @returns The updated part
    * @throws Error if part not found
    */
-  async addPartTagIds(partId: PartId, tagIds: readonly TagId[]): Promise<PartDefinition> {
+  async addPartTagIds(
+    partId: PartId,
+    tagIds: readonly TagId[],
+    user?: OwnerInfo
+  ): Promise<PartDefinition> {
     const part = this.getPartById(partId);
     if (!part) {
       throw new PartNotFoundError(partId);
@@ -577,17 +599,22 @@ export class ProjectHandle {
     return this.updatePart(partId, (existing) => ({
       ...existing,
       tagIds: [...currentTagIds, ...tagIdsToAdd],
-    }));
+    }), user);
   }
 
   /**
    * Removes tag IDs from an existing part.
    * @param partId - The part to remove tags from
    * @param tagIds - Tag IDs to remove
+   * @param user - Optional user context for tracking who made this change
    * @returns The updated part
    * @throws Error if part not found
    */
-  async removePartTagIds(partId: PartId, tagIds: readonly TagId[]): Promise<PartDefinition> {
+  async removePartTagIds(
+    partId: PartId,
+    tagIds: readonly TagId[],
+    user?: OwnerInfo
+  ): Promise<PartDefinition> {
     const part = this.getPartById(partId);
     if (!part) {
       throw new PartNotFoundError(partId);
@@ -605,17 +632,22 @@ export class ProjectHandle {
     return this.updatePart(partId, (existing) => ({
       ...existing,
       tagIds: updatedTagIds.length > 0 ? updatedTagIds : undefined,
-    }));
+    }), user);
   }
 
   /**
    * Sets all tag IDs on an existing part, replacing any existing tags.
    * @param partId - The part to set tags on
    * @param tagIds - Tag IDs to set (undefined or empty array removes all tags)
+   * @param user - Optional user context for tracking who made this change
    * @returns The updated part
    * @throws Error if part not found
    */
-  async setPartTagIds(partId: PartId, tagIds?: readonly TagId[]): Promise<PartDefinition> {
+  async setPartTagIds(
+    partId: PartId,
+    tagIds?: readonly TagId[],
+    user?: OwnerInfo
+  ): Promise<PartDefinition> {
     const part = this.getPartById(partId);
     if (!part) {
       throw new PartNotFoundError(partId);
@@ -631,7 +663,7 @@ export class ProjectHandle {
     return this.updatePart(partId, (existing) => ({
       ...existing,
       tagIds: normalizedTagIds,
-    }));
+    }), user);
   }
 
   /**
@@ -698,8 +730,9 @@ export class ProjectHandle {
    * @returns The created tag definition
    * @throws Error if tag name already exists for this type or name is invalid
    */
-  async createTag(tagInit: TagInit): Promise<TagDefinition> {
-    const result = await this.commitMutation<TagDefinition>((snapshot) => {
+  async createTag(tagInit: TagInit, user?: OwnerInfo): Promise<TagDefinition> {
+    const result = await this.commitMutation<TagDefinition>(
+      (snapshot) => {
       // Validate tag name (no spaces, same validation as before)
       const validatedName = this.validateTagName(tagInit.name);
       if (!validatedName) {
@@ -745,7 +778,9 @@ export class ProjectHandle {
           }),
         ],
       };
-    });
+    },
+      user
+    );
 
     return cloneValue(result);
   }
@@ -754,11 +789,13 @@ export class ProjectHandle {
    * Renames a tag, updating all references atomically.
    * @param tagId - The tag to rename
    * @param newName - The new name for the tag
+   * @param user - Optional user info to track who made this change.
    * @returns The updated tag definition
    * @throws Error if tag not found or new name conflicts
    */
-  async renameTag(tagId: TagId, newName: string): Promise<TagDefinition> {
-    const result = await this.commitMutation<TagDefinition>((snapshot) => {
+  async renameTag(tagId: TagId, newName: string, user?: OwnerInfo): Promise<TagDefinition> {
+    const result = await this.commitMutation<TagDefinition>(
+      (snapshot) => {
       const tag = snapshot.tags.find((t) => t.id === tagId);
       if (!tag) {
         throw new Error(`Tag not found: ${tagId}`);
@@ -811,7 +848,9 @@ export class ProjectHandle {
           }),
         ],
       };
-    });
+    },
+      user
+    );
 
     return cloneValue(result);
   }
@@ -819,11 +858,13 @@ export class ProjectHandle {
   /**
    * Deletes a tag and removes it from all parts/versions.
    * @param tagId - The tag to delete
+   * @param user - Optional user info to track who made this change.
    * @returns The deleted tag definition
    * @throws Error if tag not found
    */
-  async deleteTag(tagId: TagId): Promise<TagDefinition> {
-    const result = await this.commitMutation<TagDefinition>((snapshot) => {
+  async deleteTag(tagId: TagId, user?: OwnerInfo): Promise<TagDefinition> {
+    const result = await this.commitMutation<TagDefinition>(
+      (snapshot) => {
       const tag = snapshot.tags.find((t) => t.id === tagId);
       if (!tag) {
         throw new Error(`Tag not found: ${tagId}`);
@@ -865,7 +906,9 @@ export class ProjectHandle {
           }),
         ],
       };
-    });
+    },
+      user
+    );
 
     return cloneValue(result);
   }
@@ -1044,22 +1087,26 @@ export class ProjectHandle {
    * Applies the provided mutation function and schedules the project for persistence.
    *
    * @param mutator - Function that receives the current snapshot and returns the new state.
+   * @param user - Optional user info to track who made this change.
    */
-  async update(mutator: SnapshotMutator): Promise<ProjectSnapshot> {
-    return this.commitMutation<ProjectSnapshot>((snapshot) => {
-      const next = mutator(cloneValue(snapshot));
+  async update(mutator: SnapshotMutator, user?: OwnerInfo): Promise<ProjectSnapshot> {
+    return this.commitMutation<ProjectSnapshot>(
+      (snapshot) => {
+        const next = mutator(cloneValue(snapshot));
 
-      return {
-        snapshot: next,
-        result: next,
-        events: [
-          (finalSnapshot: ProjectSnapshot): MutationEvent => ({
-            name: 'project:updated',
-            payload: { projectId: this.projectId, snapshot: finalSnapshot },
-          }),
-        ],
-      };
-    });
+        return {
+          snapshot: next,
+          result: next,
+          events: [
+            (finalSnapshot: ProjectSnapshot): MutationEvent => ({
+              name: 'project:updated',
+              payload: { projectId: this.projectId, snapshot: finalSnapshot },
+            }),
+          ],
+        };
+      },
+      user
+    );
   }
 
   /**
@@ -1074,9 +1121,13 @@ export class ProjectHandle {
 
   /**
    * Adds a new part definition (and optional seed versions) to the project.
+   *
+   * @param partInit - The part definition to add.
+   * @param user - Optional user info to track who made this change.
    */
-  async addPart(partInit: PartInit): Promise<PartDefinition> {
-    const result = await this.commitMutation<PartDefinition>((snapshot) => {
+  async addPart(partInit: PartInit, user?: OwnerInfo): Promise<PartDefinition> {
+    const result = await this.commitMutation<PartDefinition>(
+      (snapshot) => {
       const partId = createPartId(partInit.id);
       if (snapshot.parts.some((existing) => existing.id === partId)) {
         throw new PartAlreadyExistsError(partId);
@@ -1138,19 +1189,27 @@ export class ProjectHandle {
           }),
         ],
       };
-    });
+    },
+      user
+    );
 
     return cloneValue(result);
   }
 
   /**
    * Updates an existing part definition.
+   *
+   * @param partId - The ID of the part to update.
+   * @param mutator - Function that receives the current part and returns the updated part.
+   * @param user - Optional user info to track who made this change.
    */
   async updatePart(
     partId: PartId,
-    mutator: (part: PartDefinition) => PartDefinition
+    mutator: (part: PartDefinition) => PartDefinition,
+    user?: OwnerInfo
   ): Promise<PartDefinition> {
-    const result = await this.commitMutation<PartDefinition>((snapshot) => {
+    const result = await this.commitMutation<PartDefinition>(
+      (snapshot) => {
       const index = snapshot.parts.findIndex((part) => part.id === partId);
       if (index === -1) {
         throw new PartNotFoundError(partId);
@@ -1190,7 +1249,9 @@ export class ProjectHandle {
           }),
         ],
       };
-    });
+    },
+      user
+    );
 
     return cloneValue(result);
   }
@@ -1198,8 +1259,9 @@ export class ProjectHandle {
   /**
    * Adds a new version to an existing part.
    */
-  async addPartVersion(partId: PartId, versionInit: PartVersionInit): Promise<PartVersion> {
-    const result = await this.commitMutation<PartVersion>((snapshot) => {
+  async addPartVersion(partId: PartId, versionInit: PartVersionInit, user?: OwnerInfo): Promise<PartVersion> {
+    const result = await this.commitMutation<PartVersion>(
+      (snapshot) => {
       if (!snapshot.parts.some((part) => part.id === partId)) {
         throw new PartNotFoundError(partId);
       }
@@ -1243,7 +1305,9 @@ export class ProjectHandle {
           }),
         ],
       };
-    });
+    },
+      user
+    );
 
     return cloneValue(result);
   }
@@ -1253,9 +1317,11 @@ export class ProjectHandle {
    */
   async updatePartVersion(
     versionId: PartVersionId,
-    mutator: (version: PartVersion) => PartVersion
+    mutator: (version: PartVersion) => PartVersion,
+    user?: OwnerInfo
   ): Promise<PartVersion> {
-    const result = await this.commitMutation<PartVersion>((snapshot) => {
+    const result = await this.commitMutation<PartVersion>(
+      (snapshot) => {
       const index = snapshot.versions.findIndex((version) => version.id === versionId);
       if (index === -1) {
         throw new VersionNotFoundError(versionId);
@@ -1301,7 +1367,9 @@ export class ProjectHandle {
           }),
         ],
       };
-    });
+    },
+      user
+    );
 
     return cloneValue(result);
   }
@@ -1309,8 +1377,9 @@ export class ProjectHandle {
   /**
    * Deletes a combo from the project.
    */
-  async deleteCombo(comboId: ComboId): Promise<VersionCombo> {
-    const result = await this.commitMutation<VersionCombo>((snapshot) => {
+  async deleteCombo(comboId: ComboId, user?: OwnerInfo): Promise<VersionCombo> {
+    const result = await this.commitMutation<VersionCombo>(
+      (snapshot) => {
       const index = snapshot.combos.findIndex((combo) => combo.id === comboId);
       if (index === -1) {
         throw new ComboNotFoundError(comboId);
@@ -1341,7 +1410,9 @@ export class ProjectHandle {
           }),
         ],
       };
-    });
+    },
+      user
+    );
 
     return cloneValue(result);
   }
@@ -1352,12 +1423,15 @@ export class ProjectHandle {
    * @param versionId - The version to delete
    * @param options - Optional deletion options
    * @param options.force - If true, bypass the combo reference check
+   * @param user - Optional user info to track who made this change.
    */
   async deletePartVersion(
     versionId: PartVersionId,
-    options?: { force?: boolean }
+    options?: { force?: boolean },
+    user?: OwnerInfo
   ): Promise<PartVersion> {
-    const result = await this.commitMutation<PartVersion>((snapshot) => {
+    const result = await this.commitMutation<PartVersion>(
+      (snapshot) => {
       const index = snapshot.versions.findIndex((version) => version.id === versionId);
       if (index === -1) {
         throw new VersionNotFoundError(versionId);
@@ -1422,7 +1496,9 @@ export class ProjectHandle {
           }),
         ],
       };
-    });
+    },
+      user
+    );
 
     return cloneValue(result);
   }
@@ -1433,9 +1509,15 @@ export class ProjectHandle {
    * @param partId - The part to delete
    * @param options - Optional deletion options
    * @param options.force - If true, bypass the combo reference check
+   * @param user - Optional user info to track who made this change.
    */
-  async deletePart(partId: PartId, options?: { force?: boolean }): Promise<PartDefinition> {
-    const result = await this.commitMutation<PartDefinition>((snapshot) => {
+  async deletePart(
+    partId: PartId,
+    options?: { force?: boolean },
+    user?: OwnerInfo
+  ): Promise<PartDefinition> {
+    const result = await this.commitMutation<PartDefinition>(
+      (snapshot) => {
       const index = snapshot.parts.findIndex((part) => part.id === partId);
       if (index === -1) {
         throw new PartNotFoundError(partId);
@@ -1509,16 +1591,22 @@ export class ProjectHandle {
           }),
         ],
       };
-    });
+    },
+      user
+    );
 
     return cloneValue(result);
   }
 
   /**
    * Adds a new combo to the project.
+   *
+   * @param comboInit - The combo definition to add.
+   * @param user - Optional user info to track who made this change.
    */
-  async addCombo(comboInit: VersionComboInit): Promise<VersionCombo> {
-    const result = await this.commitMutation<VersionCombo>((snapshot) => {
+  async addCombo(comboInit: VersionComboInit, user?: OwnerInfo): Promise<VersionCombo> {
+    const result = await this.commitMutation<VersionCombo>(
+      (snapshot) => {
       const comboId = createComboId(comboInit.id);
       if (snapshot.combos.some((existing) => existing.id === comboId)) {
         throw new ComboAlreadyExistsError(comboId);
@@ -1537,6 +1625,7 @@ export class ProjectHandle {
         updatedAt: timestamp,
         metadata: comboInit.metadata,
         owner: comboInit.owner,
+        updatedBy: user ?? comboInit.updatedBy,
       };
 
       const nextSnapshot: ProjectSnapshot = {
@@ -1562,19 +1651,27 @@ export class ProjectHandle {
           }),
         ],
       };
-    });
+    },
+      user
+    );
 
     return cloneValue(result);
   }
 
   /**
    * Updates an existing combo.
+   *
+   * @param comboId - The ID of the combo to update.
+   * @param mutator - Function that receives the current combo and returns the updated combo.
+   * @param user - Optional user info to track who made this change.
    */
   async updateCombo(
     comboId: ComboId,
-    mutator: (combo: VersionCombo) => VersionCombo
+    mutator: (combo: VersionCombo) => VersionCombo,
+    user?: OwnerInfo
   ): Promise<VersionCombo> {
-    const result = await this.commitMutation<VersionCombo>((snapshot) => {
+    const result = await this.commitMutation<VersionCombo>(
+      (snapshot) => {
       const index = snapshot.combos.findIndex((combo) => combo.id === comboId);
       if (index === -1) {
         throw new ComboNotFoundError(comboId);
@@ -1593,6 +1690,7 @@ export class ProjectHandle {
       const combo: VersionCombo = {
         ...nextCombo,
         updatedAt: this.clock.now(),
+        ...(user ? { updatedBy: user } : {}),
       };
 
       const combos = [...snapshot.combos];
@@ -1622,7 +1720,9 @@ export class ProjectHandle {
           }),
         ],
       };
-    });
+    },
+      user
+    );
 
     return cloneValue(result);
   }
@@ -1642,8 +1742,10 @@ export class ProjectHandle {
   /**
    * Sets the parts order, replacing the entire order at once.
    * All part IDs must exist in the project and must be unique.
+   * @param partIds - The ordered list of part IDs
+   * @param user - Optional user context for tracking who made this change
    */
-  async setPartsOrder(partIds: readonly PartId[]): Promise<void> {
+  async setPartsOrder(partIds: readonly PartId[], user?: OwnerInfo): Promise<void> {
     await this.commitMutation<void>((snapshot) => {
       // Validate all part IDs exist and are unique
       this.validatePartsOrder(partIds, snapshot);
@@ -1678,14 +1780,17 @@ export class ProjectHandle {
           }),
         ],
       };
-    });
+    }, user);
   }
 
   /**
    * Moves a single part to a new position in the order.
    * Creates a parts order if one doesn't exist.
+   * @param partId - The part to move
+   * @param newPosition - The new position index
+   * @param user - Optional user context for tracking who made this change
    */
-  async movePartOrder(partId: PartId, newPosition: number): Promise<void> {
+  async movePartOrder(partId: PartId, newPosition: number, user?: OwnerInfo): Promise<void> {
     await this.commitMutation<void>((snapshot) => {
       // Verify part exists
       if (!snapshot.parts.some((p) => p.id === partId)) {
@@ -1737,7 +1842,7 @@ export class ProjectHandle {
           }),
         ],
       };
-    });
+    }, user);
   }
 
   /**
@@ -1964,7 +2069,8 @@ export class ProjectHandle {
   }
 
   private async commitMutation<Result>(
-    mutator: (snapshot: ProjectSnapshot) => MutationResult<Result>
+    mutator: (snapshot: ProjectSnapshot) => MutationResult<Result>,
+    user?: OwnerInfo
   ): Promise<Result> {
     return this.mutex.runExclusive(async () => {
       this.assertOpen();
@@ -1979,6 +2085,7 @@ export class ProjectHandle {
         project: {
           ...snapshot.project,
           updatedAt,
+          ...(user ? { updatedBy: user } : {}),
         },
       };
 

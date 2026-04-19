@@ -132,6 +132,7 @@ export const buildProjectSnapshot = (
       updatedAt: timestamp,
       metadata: comboInit.metadata,
       owner: comboInit.owner,
+      updatedBy: comboInit.updatedBy,
     };
     combos.push(definition);
   }
@@ -146,6 +147,7 @@ export const buildProjectSnapshot = (
       description: init.description,
       metadata: init.metadata,
       owner: init.owner,
+      updatedBy: init.updatedBy,
       createdAt: timestamp,
       updatedAt: timestamp,
     },
@@ -153,6 +155,6 @@ export const buildProjectSnapshot = (
     versions: sortById(versions),
     combos: sortById(combos),
     locks: [],
-    tags: [], // Empty tags array for new snapshots
+    tags: init.tags ?? [], // Use provided tags or default to empty array
   };
 };

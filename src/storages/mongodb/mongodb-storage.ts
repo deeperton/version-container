@@ -106,6 +106,9 @@ export class MongoDbStorageProvider implements StorageProvider {
       this.snapshots.createIndex({ 'project.owner.userGroupId': 1 }).catch(() => {
         // Ignore index creation errors
       });
+      this.snapshots.createIndex({ 'project.updatedBy.userId': 1 }).catch(() => {
+        // Ignore index creation errors
+      });
       this.snapshots.createIndex({ 'project.createdAt': -1 }).catch(() => {
         // Ignore index creation errors
       });
@@ -259,8 +262,88 @@ export class MongoDbStorageProvider implements StorageProvider {
           'project.createdAt': 1,
           'project.updatedAt': 1,
           'project.owner': 1,
+          'project.updatedBy': 1,
           partsCount: { $size: '$parts' },
           combosCount: { $size: '$combos' },
+          // Compute combo latest update info using aggregation
+          comboLatestUpdateAt: {
+            $let: {
+              var: 'combos',
+              in: {
+                $cond: {
+                  if: { $gt: [{ $size: '$combos' }, 0] },
+                  then: {
+                    $reduce: {
+                      input: '$combos',
+                      initialValue: { updatedAt: '' },
+                      in: {
+                        $max: [
+                          '$$value.updatedAt',
+                          '$$this.updatedAt',
+                        ],
+                      },
+                    },
+                  },
+                  else: null,
+                },
+              },
+            },
+          },
+          comboLatestName: {
+            $let: {
+              var: 'combos',
+              in: {
+                $cond: {
+                  if: { $gt: [{ $size: '$combos' }, 0] },
+                  then: {
+                    $reduce: {
+                      input: '$combos',
+                      initialValue: { updatedAt: '', name: '' },
+                      in: {
+                        $cond: {
+                          if: { $gt: ['$$this.updatedAt', '$$value.updatedAt'] },
+                          then: {
+                            updatedAt: '$$this.updatedAt',
+                            name: '$$this.name',
+                            updatedBy: '$$this.updatedBy',
+                          },
+                          else: '$$value',
+                        },
+                      },
+                    },
+                  },
+                  else: null,
+                },
+              },
+            },
+          },
+          comboLatestUpdateBy: {
+            $let: {
+              var: 'combos',
+              in: {
+                $cond: {
+                  if: { $gt: [{ $size: '$combos' }, 0] },
+                  then: {
+                    $reduce: {
+                      input: '$combos',
+                      initialValue: { updatedAt: '', updatedBy: null },
+                      in: {
+                        $cond: {
+                          if: { $gt: ['$$this.updatedAt', '$$value.updatedAt'] },
+                          then: {
+                            updatedAt: '$$this.updatedAt',
+                            updatedBy: '$$this.updatedBy',
+                          },
+                          else: '$$value',
+                        },
+                      },
+                    },
+                  },
+                  else: null,
+                },
+              },
+            },
+          },
         },
       },
       { $sort: { 'project.updatedAt': -1 } },
@@ -283,9 +366,25 @@ export class MongoDbStorageProvider implements StorageProvider {
             userId: UserId;
             userGroupId?: UserGroupId;
           };
+          updatedBy?: {
+            userName: string;
+            userId: UserId;
+            userGroupId?: UserGroupId;
+            type?: 'user' | 'group';
+          };
         };
         partsCount: number;
         combosCount: number;
+        comboLatestUpdateAt: string | null;
+        comboLatestName: { name: string } | null;
+        comboLatestUpdateBy: { updatedBy: import('../../models/base.js').OwnerInfo } | null;
+      };
+
+      // Extract combo latest info from aggregation result
+      const comboLatestInfo = {
+        comboLatestUpdateAt: snapshot.comboLatestUpdateAt ?? undefined,
+        comboLatestName: snapshot.comboLatestName?.name ?? undefined,
+        comboLatestUpdateBy: snapshot.comboLatestUpdateBy?.updatedBy ?? undefined,
       };
 
       return {
@@ -293,10 +392,12 @@ export class MongoDbStorageProvider implements StorageProvider {
         name: snapshot.project.name,
         description: snapshot.project.description,
         owner: snapshot.project.owner as OwnerInfo | undefined,
+        updatedBy: snapshot.project.updatedBy as OwnerInfo | undefined,
         createdAt: snapshot.project.createdAt,
         updatedAt: snapshot.project.updatedAt,
         partsCount: snapshot.partsCount,
         combosCount: snapshot.combosCount,
+        ...comboLatestInfo,
       };
     });
 

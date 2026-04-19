@@ -7,7 +7,7 @@ import type {
   UserGroupId,
 } from './base.js';
 import type { PartDefinition, PartInit, PartVersion } from './part.js';
-import type { TagDefinition } from './tag.js';
+import type { TagDefinition, TagInit } from './tag.js';
 import type { Lockfile, VersionCombo, VersionComboInit } from './combo.js';
 
 /**
@@ -24,17 +24,20 @@ export interface ProjectInit {
   readonly name: string;
   readonly description?: string;
   readonly metadata?: MetadataRecord;
-  readonly owner?: OwnerInfo;
+  readonly owner: OwnerInfo;
+  readonly updatedBy: OwnerInfo;
   readonly parts?: readonly PartInit[];
   readonly combos?: readonly VersionComboInit[];
+  readonly tags?: readonly TagInit[];
 }
 
 /**
  * Snapshot of project-level metadata.
  */
-export interface ProjectMetadata extends Omit<ProjectInit, 'id' | 'parts' | 'combos'> {
+export interface ProjectMetadata extends Omit<ProjectInit, 'id' | 'parts' | 'combos' | 'tags'> {
   readonly id: ProjectId;
-  readonly owner?: OwnerInfo;
+  readonly owner: OwnerInfo;
+  readonly updatedBy: OwnerInfo;
   readonly createdAt: ISO8601Timestamp;
   readonly updatedAt: ISO8601Timestamp;
 }
@@ -65,8 +68,12 @@ export interface ProjectSummary {
   readonly id: ProjectId;
   readonly name: string;
   readonly description?: string;
-  readonly owner?: OwnerInfo;
+  readonly owner: OwnerInfo;
+  readonly updatedBy: OwnerInfo;
   readonly updatedAt: ISO8601Timestamp;
+  readonly comboLatestUpdateAt?: ISO8601Timestamp;
+  readonly comboLatestUpdateBy?: OwnerInfo;
+  readonly comboLatestName?: string;
 }
 
 /**
@@ -126,11 +133,15 @@ export interface ProjectListSummary {
   readonly id: ProjectId;
   readonly name: string;
   readonly description?: string;
-  readonly owner?: OwnerInfo;
+  readonly owner: OwnerInfo;
+  readonly updatedBy: OwnerInfo;
   readonly createdAt: ISO8601Timestamp;
   readonly updatedAt: ISO8601Timestamp;
   readonly partsCount: number;
   readonly combosCount: number;
+  readonly comboLatestUpdateAt?: ISO8601Timestamp;
+  readonly comboLatestUpdateBy?: OwnerInfo;
+  readonly comboLatestName?: string;
 }
 
 /**

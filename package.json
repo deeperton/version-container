@@ -1,6 +1,6 @@
 {
   "name": "version-container",
-  "version": "0.0.3",
+  "version": "1.0.3",
   "description": "Type-safe building blocks for managing projects composed of parts, versions, and version combos",
   "type": "module",
   "main": "./dist/version-container.cjs.js",

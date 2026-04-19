@@ -7,9 +7,39 @@ import type {
   ProjectSnapshot,
   ProjectSummary,
 } from '../../models/project.js';
+import type { VersionCombo } from '../../models/combo.js';
 import { cloneValue } from '../../lib/utils/clone.js';
 
 const DEFAULT_PAGE_SIZE = 50;
+
+/**
+ * Computes the latest combo update information for a project.
+ * @param combos - Array of combos in the project
+ * @returns Object with latest update info, or undefined if no combos exist
+ */
+function computeComboLatestInfo(combos: readonly VersionCombo[]): {
+  comboLatestUpdateAt?: string;
+  comboLatestUpdateBy?: import('../../models/base.js').OwnerInfo;
+  comboLatestName?: string;
+} {
+  if (combos.length === 0) {
+    return {
+      comboLatestUpdateAt: undefined,
+      comboLatestUpdateBy: undefined,
+      comboLatestName: undefined,
+    };
+  }
+
+  const latestCombo = combos.reduce((latest, combo) =>
+    combo.updatedAt > latest.updatedAt ? combo : latest
+  );
+
+  return {
+    comboLatestUpdateAt: latestCombo.updatedAt,
+    comboLatestUpdateBy: latestCombo.updatedBy,
+    comboLatestName: latestCombo.name,
+  };
+}
 
 export interface InMemoryStorageOptions {
   readonly initialSnapshots?: readonly ProjectSnapshot[];
@@ -47,8 +77,8 @@ export class InMemoryStorageProvider implements StorageProvider {
 
   async listSummaries(): Promise<readonly ProjectSummary[]> {
     const summaries = Array.from(this.snapshots.values(), (snapshot) => {
-      const { id, name, description, updatedAt } = snapshot.project;
-      return { id, name, description, updatedAt };
+      const { id, name, description, owner, updatedBy, updatedAt } = snapshot.project;
+      return { id, name, description, owner, updatedBy, updatedAt };
     });
 
     summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -118,16 +148,21 @@ export class InMemoryStorageProvider implements StorageProvider {
     const paginated = filtered.slice(offset, offset + limit);
 
     // Map to ProjectListSummary
-    const projects: ProjectListSummary[] = paginated.map((snapshot) => ({
-      id: snapshot.project.id,
-      name: snapshot.project.name,
-      description: snapshot.project.description,
-      owner: snapshot.project.owner,
-      createdAt: snapshot.project.createdAt,
-      updatedAt: snapshot.project.updatedAt,
-      partsCount: snapshot.parts.length,
-      combosCount: snapshot.combos.length,
-    }));
+    const projects: ProjectListSummary[] = paginated.map((snapshot) => {
+      const comboLatestInfo = computeComboLatestInfo(snapshot.combos);
+      return {
+        id: snapshot.project.id,
+        name: snapshot.project.name,
+        description: snapshot.project.description,
+        owner: snapshot.project.owner,
+        updatedBy: snapshot.project.updatedBy,
+        createdAt: snapshot.project.createdAt,
+        updatedAt: snapshot.project.updatedAt,
+        partsCount: snapshot.parts.length,
+        combosCount: snapshot.combos.length,
+        ...comboLatestInfo,
+      };
+    });
 
     // Calculate pagination metadata
     const totalPages = Math.ceil(totalCount / limit);

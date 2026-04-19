@@ -16,10 +16,38 @@ import type {
   ProjectSummary,
 } from '../../models/project.js';
 import type { TagDefinition } from '../../models/tag.js';
+import type { VersionCombo } from '../../models/combo.js';
 
 /**
  * Options for configuring the SQLite storage provider.
  */
+
+/**
+ * Computes the latest combo update information for a project.
+ */
+function computeComboLatestInfo(combos: readonly VersionCombo[]): {
+  comboLatestUpdateAt?: string;
+  comboLatestUpdateBy?: import('../../models/base.js').OwnerInfo;
+  comboLatestName?: string;
+} {
+  if (combos.length === 0) {
+    return {
+      comboLatestUpdateAt: undefined,
+      comboLatestUpdateBy: undefined,
+      comboLatestName: undefined,
+    };
+  }
+
+  const latestCombo = combos.reduce((latest, combo) =>
+    combo.updatedAt > latest.updatedAt ? combo : latest
+  );
+
+  return {
+    comboLatestUpdateAt: latestCombo.updatedAt,
+    comboLatestUpdateBy: latestCombo.updatedBy,
+    comboLatestName: latestCombo.name,
+  };
+}
 export interface SqliteStorageOptions {
   /**
    * File path to the SQLite database.
@@ -41,7 +69,7 @@ export interface SqliteStorageOptions {
 const DEFAULT_FILE_PATH = './version-container.db';
 const DEFAULT_ID = 'sqlite';
 const DEFAULT_PAGE_SIZE = 50;
-const CURRENT_ADAPTER_VERSION = 4;
+const CURRENT_ADAPTER_VERSION = 5;
 
 /**
  * Database migration definition.
@@ -196,6 +224,48 @@ const MIGRATIONS: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 5,
+    description: 'Add updatedBy columns for tracking last modifier',
+    up: (db: Database): void => {
+      // Helper function to add column if it doesn't exist
+      const addColumnIfNotExists = (
+        tableName: string,
+        columnName: string,
+        columnDef: string
+      ): void => {
+        const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{
+          name: string;
+        }>;
+        const columnNames = columns.map((c) => c.name);
+        if (!columnNames.includes(columnName)) {
+          db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDef}`);
+        }
+      };
+
+      // Add updatedBy columns to snapshots table
+      addColumnIfNotExists('snapshots', 'updatedBy_user_name', 'TEXT');
+      addColumnIfNotExists('snapshots', 'updatedBy_user_id', 'TEXT');
+      addColumnIfNotExists('snapshots', 'updatedBy_user_group_id', 'TEXT');
+      addColumnIfNotExists('snapshots', 'updatedBy_type', 'TEXT');
+
+      // Migrate existing data: set updatedBy = owner for existing records
+      db.exec(`
+        UPDATE snapshots
+        SET updatedBy_user_name = owner_user_name,
+            updatedBy_user_id = owner_user_id,
+            updatedBy_user_group_id = owner_user_group_id,
+            updatedBy_type = owner_user_id IS NOT NULL ? 'user' : 'group'
+        WHERE updatedBy_user_id IS NULL
+      `);
+
+      // Create index for updatedBy queries
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_snapshots_updatedBy_user_id
+        ON snapshots(updatedBy_user_id);
+      `);
+    },
+  },
 ];
 
 /**
@@ -250,6 +320,10 @@ export class SqliteStorageProvider implements StorageProvider {
       ownerUserName: string | null,
       ownerUserId: string | null,
       ownerUserGroupId: string | null,
+      updatedByUserName: string | null,
+      updatedByUserId: string | null,
+      updatedByUserGroupId: string | null,
+      updatedByType: string | null,
       partsCount: number,
       combosCount: number,
       data: string
@@ -385,9 +459,10 @@ export class SqliteStorageProvider implements StorageProvider {
       INSERT INTO snapshots (
         project_id, name, description, created_at, updated_at,
         owner_user_name, owner_user_id, owner_user_group_id,
+        updatedBy_user_name, updatedBy_user_id, updatedBy_user_group_id, updatedBy_type,
         parts_count, combos_count, data
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(project_id) DO UPDATE SET
         name = excluded.name,
         description = excluded.description,
@@ -396,6 +471,10 @@ export class SqliteStorageProvider implements StorageProvider {
         owner_user_name = excluded.owner_user_name,
         owner_user_id = excluded.owner_user_id,
         owner_user_group_id = excluded.owner_user_group_id,
+        updatedBy_user_name = excluded.updatedBy_user_name,
+        updatedBy_user_id = excluded.updatedBy_user_id,
+        updatedBy_user_group_id = excluded.updatedBy_user_group_id,
+        updatedBy_type = excluded.updatedBy_type,
         parts_count = excluded.parts_count,
         combos_count = excluded.combos_count,
         data = excluded.data
@@ -558,6 +637,12 @@ export class SqliteStorageProvider implements StorageProvider {
     const ownerUserId = project.owner?.userId ?? null;
     const ownerUserGroupId = project.owner?.userGroupId ?? null;
 
+    // Extract updatedBy information for indexed columns
+    const updatedByUserName = project.updatedBy?.userName ?? null;
+    const updatedByUserId = project.updatedBy?.userId ?? null;
+    const updatedByUserGroupId = project.updatedBy?.userGroupId ?? null;
+    const updatedByType = project.updatedBy?.type ?? null;
+
     // Compute statistics
     const partsCount = snapshot.parts.length;
     const combosCount = snapshot.combos.length;
@@ -572,6 +657,10 @@ export class SqliteStorageProvider implements StorageProvider {
         ownerUserName,
         ownerUserId as string | null,
         ownerUserGroupId as string | null,
+        updatedByUserName,
+        updatedByUserId as string | null,
+        updatedByUserGroupId as string | null,
+        updatedByType,
         partsCount,
         combosCount,
         serialized
@@ -797,7 +886,8 @@ export class SqliteStorageProvider implements StorageProvider {
       SELECT
         project_id, name, description, created_at, updated_at,
         owner_user_name, owner_user_id, owner_user_group_id,
-        parts_count, combos_count
+        updatedBy_user_name, updatedBy_user_id, updatedBy_user_group_id, updatedBy_type,
+        parts_count, combos_count, data
       FROM snapshots
       ${whereClause}
       ORDER BY updated_at DESC
@@ -814,11 +904,20 @@ export class SqliteStorageProvider implements StorageProvider {
       owner_user_name: string | null;
       owner_user_id: string | null;
       owner_user_group_id: string | null;
+      updatedBy_user_name: string | null;
+      updatedBy_user_id: string | null;
+      updatedBy_user_group_id: string | null;
+      updatedBy_type: string | null;
       parts_count: number;
       combos_count: number;
+      data: string;
     }[];
 
     const projects: ProjectListSummary[] = rows.map((row) => {
+      // Parse full snapshot to compute combo latest info
+      const snapshot = JSON.parse(row.data) as ProjectSnapshot;
+      const comboLatestInfo = computeComboLatestInfo(snapshot.combos);
+
       const summary: ProjectListSummary = {
         id: row.project_id as ProjectId,
         name: row.name,
@@ -837,6 +936,18 @@ export class SqliteStorageProvider implements StorageProvider {
               }),
             },
           }),
+        ...(row.updatedBy_user_id &&
+          row.updatedBy_user_name && {
+            updatedBy: {
+              userName: row.updatedBy_user_name,
+              userId: row.updatedBy_user_id as UserId,
+              ...(row.updatedBy_user_group_id && {
+                userGroupId: row.updatedBy_user_group_id as UserGroupId,
+              }),
+              ...(row.updatedBy_type && { type: row.updatedBy_type as 'user' | 'group' }),
+            },
+          }),
+        ...comboLatestInfo,
       };
 
       return summary;

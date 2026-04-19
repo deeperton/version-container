@@ -7,6 +7,7 @@ import type {
   ProjectSnapshot,
   ProjectSummary,
 } from '../../models/project.js';
+import type { VersionCombo } from '../../models/combo.js';
 
 export interface LocalStorageStorageOptions {
   readonly id?: string;
@@ -16,6 +17,33 @@ export interface LocalStorageStorageOptions {
 const DEFAULT_KEY_PREFIX = 'version-container:';
 const SUMMARY_INDEX_KEY = 'version-container:__summaries';
 const DEFAULT_PAGE_SIZE = 50;
+
+/**
+ * Computes the latest combo update information for a project.
+ */
+function computeComboLatestInfo(combos: readonly VersionCombo[]): {
+  comboLatestUpdateAt?: string;
+  comboLatestUpdateBy?: import('../../models/base.js').OwnerInfo;
+  comboLatestName?: string;
+} {
+  if (combos.length === 0) {
+    return {
+      comboLatestUpdateAt: undefined,
+      comboLatestUpdateBy: undefined,
+      comboLatestName: undefined,
+    };
+  }
+
+  const latestCombo = combos.reduce((latest, combo) =>
+    combo.updatedAt > latest.updatedAt ? combo : latest
+  );
+
+  return {
+    comboLatestUpdateAt: latestCombo.updatedAt,
+    comboLatestUpdateBy: latestCombo.updatedBy,
+    comboLatestName: latestCombo.name,
+  };
+}
 
 /**
  * Storage provider that persists project snapshots to browser localStorage.
@@ -141,16 +169,21 @@ export class LocalStorageStorageProvider implements StorageProvider {
     const offset = (page - 1) * limit;
     const paginated = filtered.slice(offset, offset + limit);
 
-    const projects: ProjectListSummary[] = paginated.map((snapshot: ProjectSnapshot) => ({
-      id: snapshot.project.id,
-      name: snapshot.project.name,
-      description: snapshot.project.description,
-      owner: snapshot.project.owner,
-      createdAt: snapshot.project.createdAt,
-      updatedAt: snapshot.project.updatedAt,
-      partsCount: snapshot.parts.length,
-      combosCount: snapshot.combos.length,
-    }));
+    const projects: ProjectListSummary[] = paginated.map((snapshot: ProjectSnapshot) => {
+      const comboLatestInfo = computeComboLatestInfo(snapshot.combos);
+      return {
+        id: snapshot.project.id,
+        name: snapshot.project.name,
+        description: snapshot.project.description,
+        owner: snapshot.project.owner,
+        updatedBy: snapshot.project.updatedBy,
+        createdAt: snapshot.project.createdAt,
+        updatedAt: snapshot.project.updatedAt,
+        partsCount: snapshot.parts.length,
+        combosCount: snapshot.combos.length,
+        ...comboLatestInfo,
+      };
+    });
 
     // Calculate pagination metadata
     const totalPages = Math.ceil(totalCount / limit);
@@ -196,8 +229,8 @@ export class LocalStorageStorageProvider implements StorageProvider {
 
   private updateSummaryIndex(snapshot: ProjectSnapshot): void {
     const summaries = this.loadSummaryIndex();
-    const { id, name, description, updatedAt } = snapshot.project;
-    const summary: ProjectSummary = { id, name, description, updatedAt };
+    const { id, name, description, owner, updatedBy, updatedAt } = snapshot.project;
+    const summary: ProjectSummary = { id, name, description, owner, updatedBy, updatedAt };
     const index = summaries.findIndex((s) => s.id === id);
 
     if (index >= 0) {

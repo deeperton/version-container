@@ -52,7 +52,14 @@ const adapterId = createAdapterId('in-memory');
 
 const handle = await registry.open({
   name: 'Rocket Guidance System',
-  metadata: { owner: 'avionics-team' },
+  owner: {
+    userName: 'Avionics Team',
+    userId: createUserId('avionics-team'),
+  },
+  updatedBy: {
+    userName: 'Avionics Team',
+    userId: createUserId('avionics-team'),
+  },
   combos: [
     {
       id: baselineComboId,
@@ -63,6 +70,14 @@ const handle = await registry.open({
           versionId: engineV1Id,
         },
       ],
+      owner: {
+        userName: 'Avionics Team',
+        userId: createUserId('avionics-team'),
+      },
+      updatedBy: {
+        userName: 'Avionics Team',
+        userId: createUserId('avionics-team'),
+      },
     },
   ],
 });
@@ -952,7 +967,84 @@ const summary = await registry.getPartSummary(projectId, partId);
 console.log(summary?.owner?.userName); // "John Doe"
 ```
 
-### 16. Project access control
+### 16. User context tracking for mutations
+
+The library tracks which users make changes to projects and combos through an optional `user` parameter on mutation methods. This provides a complete audit trail of who modified what and when.
+
+#### Adding user context to mutations
+
+All major mutation methods accept an optional `user` parameter:
+
+```ts
+import type { OwnerInfo } from 'version-container';
+
+const currentUser: OwnerInfo = {
+  userName: 'Jane Smith',
+  userId: createUserId('user-123'),
+};
+
+// Track who made the change
+await registry.updateProjectMetadata(handle.projectId, (metadata) => ({
+  ...metadata,
+  description: 'Updated by Jane',
+}), currentUser);
+
+await registry.addCombo(handle.projectId, {
+  name: 'New Combo',
+  bindings: [{ partId, versionId }],
+  owner: currentUser,  // Combo creator
+}, currentUser);  // Who's adding this combo
+
+await registry.updateCombo(handle.projectId, comboId, (combo) => ({
+  ...combo,
+  name: 'Updated Combo',
+}), currentUser);  // Who's updating this combo
+```
+
+**Supported mutation methods with user tracking:**
+- `updateProjectMetadata(mutator, user?)`
+- `addPart(partInit, user?)`
+- `updatePart(partId, mutator, user?)`
+- `addPartVersion(partId, versionInit, user?)`
+- `updatePartVersion(versionId, mutator, user?)`
+- `addCombo(comboInit, user?)`
+- `updateCombo(comboId, mutator, user?)`
+- `deleteCombo(comboId, user?)`
+- `deletePart(partId, options?, user?)`
+- `deletePartVersion(versionId, options?, user?)`
+- And all tag-related methods
+
+#### How it works
+
+- When `user` is provided: updates `project.updatedBy` and/or `combo.updatedBy`
+- When `user` is omitted: preserves existing `updatedBy` value
+- The `commitMutation` core automatically applies user context to the project snapshot
+- Combo mutations update both project and combo `updatedBy` fields
+
+#### Use cases
+
+```ts
+// Audit trail: See who last modified each project
+const projects = await registry.listProjects();
+for (const project of projects) {
+  console.log(`${project.name}: last updated by ${project.updatedBy.userName}`);
+}
+
+// Activity monitoring: Track combo activity
+for (const project of projects) {
+  if (project.comboLatestUpdateAt) {
+    console.log(`Latest combo: ${project.comboLatestName}`);
+    console.log(`Updated by: ${project.comboLatestUpdateBy?.userName}`);
+    console.log(`At: ${project.comboLatestUpdateAt}`);
+  }
+}
+
+// Collaborative editing: See who's working on what
+await registry.updateProjectMetadata(projectId, (m) => ({ ...m }), editorUser);
+await registry.addCombo(projectId, comboInit, comboOwner, reviewerUser);
+```
+
+### 17. Project access control
 
 When a project has owner information, the library enforces access control. Users must provide their user ID when opening or loading projects that have an owner.
 
@@ -1019,7 +1111,7 @@ try {
 
 **Important**: Once a project is successfully loaded with proper credentials, subsequent operations on that registry instance work without re-specifying the user ID. The library tracks which user authenticated each project for internal operations.
 
-### 17. List projects with filtering and pagination
+### 18. List projects with filtering and pagination
 
 The library provides a `listProjects()` API for querying projects across storage with support for filtering, sorting, and pagination. This is useful for building project browsers, dashboards, and admin interfaces.
 
@@ -1149,9 +1241,9 @@ const results = await registry.listProjects({
 });
 ```
 
-#### Project summary with stats
+#### Project summary with stats and activity tracking
 
-Each project in the results includes owner information and statistics:
+Each project in the results includes owner information, update tracking, and combo activity:
 
 ```ts
 const result = await registry.listProjects();
@@ -1162,11 +1254,23 @@ for (const project of result.projects) {
   console.log(project.description);  // Optional description
   console.log(project.createdAt);    // Creation timestamp
   console.log(project.updatedAt);    // Last update timestamp
-  console.log(project.owner);        // OwnerInfo or undefined
+  console.log(project.owner);        // OwnerInfo (required)
+  console.log(project.updatedBy);    // Who last updated the project (required)
   console.log(project.partsCount);   // Number of parts
   console.log(project.combosCount);  // Number of combos
+  
+  // NEW: Combo activity tracking
+  console.log(project.comboLatestUpdateAt);   // Latest combo update time (or undefined)
+  console.log(project.comboLatestUpdateBy);   // Who updated the latest combo (or undefined)
+  console.log(project.comboLatestName);       // Name of latest combo (or undefined)
 }
 ```
+
+**New in this version:**
+- **`updatedBy` field**: Tracks which user last modified the project (required field)
+- **Combo activity tracking**: See the latest combo update info at a glance
+- **Required `owner` field**: Breaking change - all projects must specify an owner now
+- **User context propagation**: Mutation methods accept optional `user` parameter to track who made changes
 
 #### Storage adapter support
 

@@ -58,7 +58,8 @@ Project
 | `UserGroupId` | Branded user group identifier | `createUserGroupId('team-alpha')` |
 | `OwnerInfo` | Owner metadata | `{ userName, userId, userGroupId? }` |
 | `ProjectSnapshot` | Complete project state | Full project with parts/versions/combos/tags |
-| `ProjectSummary` | Lightweight project info | id, name, description, owner, updatedAt |
+| `ProjectSummary` | Lightweight project info | id, name, description, owner, updatedBy, updatedAt |
+| `ProjectListSummary` | Enriched project info | id, name, description, owner, updatedBy, createdAt, updatedAt, partsCount, combosCount, comboLatestUpdateAt, comboLatestUpdateBy, comboLatestName |
 | `ProjectsQuery` | Query options for listProjects | `{ ownerUserId?, namePattern?, limit?, page?, includeAll? }` |
 | `ProjectListResult` | Paginated list of projects | `{ projects[], pagination{} }` |
 
@@ -81,46 +82,65 @@ import {
   createTagId,
   createUserId,
   createUserGroupId,
+  type OwnerInfo,
 } from 'version-container';
 
 // 1. Set up storage
 const storage = new InMemoryStorageProvider();
 const registry = new ProjectRegistry({ storage, adapters: [] });
 
-// 2. Create/open a project
+// 2. Define user context
+const myUser: OwnerInfo = {
+  userName: 'John Doe',
+  userId: createUserId('user-123'),
+};
+
+// 3. Create/open a project (owner and updatedBy are REQUIRED)
 const handle = await registry.open({
   name: 'My Application',
   description: 'Project description',
+  owner: myUser,           // REQUIRED
+  updatedBy: myUser,       // REQUIRED
 });
 
-// 3. Add a part
+// 4. Add a part (with optional user tracking)
 const partId = createPartId('ui-kit');
 await registry.addPart(handle.projectId, {
   id: partId,
   name: 'UI Kit',
   adapterId: createAdapterId('npm'),
-});
+  owner: myUser,           // Track who created this part
+}, myUser);              // Track who's adding this part
 
-// 4. Add versions to the part
+// 5. Add versions to the part
 await registry.addPartVersion(handle.projectId, partId, {
   id: createPartVersionId('1.0.0'),
   label: '1.0.0',
   locator: { uri: 'npm://ui-kit@1.0.0' },
-});
+  owner: myUser,           // Track who created this version
+}, myUser);              // Track who's adding this version
 
-// 5. Create a combo
+// 6. Create a combo (with user tracking)
 await registry.addCombo(handle.projectId, {
   id: createComboId('baseline'),
   name: 'Baseline',
   bindings: [
     { partId, versionId: createPartVersionId('1.0.0') }
   ],
-});
+  owner: myUser,           // Track who created this combo
+  updatedBy: myUser,       // Track who created this combo
+}, myUser);              // Track who's adding this combo
 
-// 6. List projects (secure by default)
-const myUserId = createUserId('user-123');
-const result = await registry.listProjects({ ownerUserId: myUserId });
-console.log(result.projects); // Array of your projects with stats
+// 7. List projects with enhanced activity tracking
+const result = await registry.listProjects({ ownerUserId: myUser.id });
+for (const project of result.projects) {
+  console.log(`${project.name}: last updated by ${project.updatedBy.userName}`);
+  if (project.comboLatestUpdateAt) {
+    console.log(`  Latest combo: ${project.comboLatestName}`);
+    console.log(`  Updated by: ${project.comboLatestUpdateBy?.userName}`);
+    console.log(`  At: ${project.comboLatestUpdateAt}`);
+  }
+}
 ```
 
 ## Storage Provider Selection
@@ -462,6 +482,103 @@ const tagById = handle.getTagById(stableTag.id);
 - Tag names can contain special characters (`v1.0.0`, `release@final`, etc.)
 - Duplicate tag names are not allowed within the same type (but `stable` can exist for both parts and versions)
 
+### User Context Tracking for Mutations
+
+The library tracks which users make changes through an optional `user` parameter on mutation methods. This provides complete audit trails and activity visibility.
+
+#### Adding User Context
+
+```typescript
+import type { OwnerInfo } from 'version-container';
+
+const currentUser: OwnerInfo = {
+  userName: 'Jane Smith',
+  userId: createUserId('user-123'),
+};
+
+// Track who made the change
+await registry.updateProjectMetadata(handle.projectId, (metadata) => ({
+  ...metadata,
+  description: 'Updated by Jane',
+}), currentUser);
+
+await registry.addCombo(handle.projectId, {
+  name: 'New Combo',
+  bindings: [{ partId, versionId }],
+  owner: currentUser,    // Combo creator
+  updatedBy: currentUser, // Combo updater
+}, currentUser);  // Who's adding this combo
+
+await registry.updateCombo(handle.projectId, comboId, (combo) => ({
+  ...combo,
+  name: 'Updated Combo',
+}), currentUser);  // Who's updating
+```
+
+#### Supported Methods with User Tracking
+
+All major mutation methods accept optional `user?: OwnerInfo`:
+- Project: `updateProjectMetadata`
+- Parts: `addPart`, `updatePart`, `deletePart`
+- Versions: `addPartVersion`, `updatePartVersion`, `deletePartVersion`
+- Combos: `addCombo`, `updateCombo`, `deleteCombo`
+- Tags: `createTag`, `renameTag`, `deleteTag`
+
+#### Combo Activity Tracking
+
+Projects now include combo activity information in `listProjects()` results:
+
+```typescript
+const result = await registry.listProjects();
+
+for (const project of result.projects) {
+  console.log(`${project.name}: last updated by ${project.updatedBy.userName}`);
+  
+  // Latest combo update info
+  if (project.comboLatestUpdateAt) {
+    console.log(`  Latest combo: ${project.comboLatestName}`);
+    console.log(`  Updated by: ${project.comboLatestUpdateBy?.userName}`);
+    console.log(`  At: ${project.comboLatestUpdateAt}`);
+  } else {
+    console.log(`  No combos yet`);
+  }
+}
+```
+
+#### Breaking Change: Required Owner/updatedBy Fields
+
+**This version introduces breaking changes:**
+- `owner` and `updatedBy` are now **required** for all projects and combos
+- All existing project/combo creation code must be updated
+
+```typescript
+// ❌ Old way (no longer works)
+const handle = await registry.open({
+  name: 'My Project',
+});
+
+// ✅ New way (required fields)
+const handle = await registry.open({
+  name: 'My Project',
+  owner: {
+    userName: 'User Name',
+    userId: createUserId('user-123'),
+  },
+  updatedBy: {
+    userName: 'User Name',
+    userId: createUserId('user-123'),
+  },
+});
+
+// Combos also require owner and updatedBy
+await registry.addCombo(handle.projectId, {
+  name: 'My Combo',
+  bindings: [...],
+  owner: { userName: 'User', userId: createUserId('user-123') },
+  updatedBy: { userName: 'User', userId: createUserId('user-123') },
+});
+```
+
 ### Adding Parts and Versions
 
 ```typescript
@@ -765,21 +882,29 @@ const results = await registry.listProjects({
 });
 ```
 
-#### Project Summary with Stats
+#### Project Summary with Stats and Activity Tracking
 
-Each result includes owner info and statistics:
+Each result includes owner info, update tracking, and combo activity:
 
 ```typescript
 const result = await registry.listProjects({ includeAll: true });
 
 for (const project of result.projects) {
-  console.log(project.id);          // Project ID
-  console.log(project.name);        // Project name
-  console.log(project.owner);       // OwnerInfo or undefined
-  console.log(project.partsCount);  // Number of parts
-  console.log(project.combosCount); // Number of combos
-  console.log(project.createdAt);   // Creation timestamp
-  console.log(project.updatedAt);   // Last update timestamp
+  console.log(project.id);           // Project ID
+  console.log(project.name);         // Project name
+  console.log(project.owner);        // OwnerInfo (required)
+  console.log(project.updatedBy);     // Who last updated (required)
+  console.log(project.createdAt);    // Creation timestamp
+  console.log(project.updatedAt);    // Last update timestamp
+  console.log(project.partsCount);   // Number of parts
+  console.log(project.combosCount);  // Number of combos
+  
+  // NEW: Combo activity tracking
+  if (project.comboLatestUpdateAt) {
+    console.log(`Latest combo: ${project.comboLatestName}`);
+    console.log(`  Updated by: ${project.comboLatestUpdateBy?.userName}`);
+    console.log(`  At: ${project.comboLatestUpdateAt}`);
+  }
 }
 ```
 

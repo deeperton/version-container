@@ -370,12 +370,21 @@ Before submitting code, ensure:
 - ✅ Multiple storage providers (in-memory, localStorage, SQLite, MongoDB)
 - ✅ Storage registry for runtime provider selection
 - ✅ Project listing with pagination and filtering
+- ✅ **NEW: User context tracking with `updatedBy` field**
+- ✅ **NEW: Combo activity tracking in project listings**
+- ✅ **NEW: Required `owner` and `updatedBy` fields (breaking change)**
+
+### Recent Breaking Changes
+- **Required owner/updatedBy**: Projects and combos now require `owner` and `updatedBy` fields
+- **Mutation user tracking**: All major mutation methods accept optional `user?: OwnerInfo` parameter
+- **Enhanced project listings**: `ProjectListSummary` now includes combo activity tracking fields
 
 ### Storage Provider Migration System
 - SQLite uses automatic schema migrations
-- Current schema version: 4
+- Current schema version: 5 (upgraded from v4)
 - Migrations tracked in `_adapter_state` table
 - Supports indexed columns for efficient queries
+- **Migration v5**: Added `updatedBy` columns for tracking last modifier
 
 ## Common Patterns
 

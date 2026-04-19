@@ -16,7 +16,8 @@ export interface VersionComboInit {
   readonly description?: string;
   readonly bindings: readonly VersionBinding[];
   readonly metadata?: MetadataRecord;
-  readonly owner?: OwnerInfo;
+  readonly owner: OwnerInfo;
+  readonly updatedBy: OwnerInfo;
 }
 
 /**
@@ -24,7 +25,8 @@ export interface VersionComboInit {
  */
 export interface VersionCombo extends Omit<VersionComboInit, 'id'> {
   readonly id: ComboId;
-  readonly owner?: OwnerInfo;
+  readonly owner: OwnerInfo;
+  readonly updatedBy: OwnerInfo;
   readonly createdAt: ISO8601Timestamp;
   readonly updatedAt: ISO8601Timestamp;
 }
