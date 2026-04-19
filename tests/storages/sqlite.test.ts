@@ -13,6 +13,7 @@ import type {
   AdapterId,
   ComboId,
   PartId,
+  OwnerInfo,
   ProjectSnapshot,
   ProjectId,
   ISO8601Timestamp,
@@ -21,6 +22,11 @@ import type {
   TagId,
 } from '../../src/models/index.js';
 import type { TagDefinition } from '../../src/models/tag.js';
+
+const defaultOwner: OwnerInfo = {
+  userName: 'Test User',
+  userId: 'test-user-1' as UserId,
+};
 
 /**
  * Helper to create a test snapshot.
@@ -35,6 +41,8 @@ const createTestSnapshot = (
     id: id as ProjectId,
     name,
     description: `Test project ${name}`,
+    owner: defaultOwner,
+    updatedBy: defaultOwner,
     createdAt: updatedAt,
     updatedAt,
   },
@@ -260,11 +268,13 @@ describe('SqliteStorageProvider', () => {
       const summaries = await provider.listSummaries();
 
       expect(summaries).toHaveLength(1);
-      expect(summaries[0]).toEqual({
+      expect(summaries[0]).toMatchObject({
         id: snapshot.project.id,
         name: snapshot.project.name,
         description: snapshot.project.description,
         updatedAt: snapshot.project.updatedAt,
+        owner: snapshot.project.owner,
+        updatedBy: snapshot.project.updatedBy,
       });
     });
 
@@ -530,7 +540,7 @@ describe('SqliteStorageProvider', () => {
         .get('version') as { value: string } | undefined;
 
       expect(state).toBeDefined();
-      expect(state?.value).toBe('4'); // Current version
+      expect(state?.value).toBe('5'); // Current version
 
       await p.close();
       externalDb.close();
@@ -572,7 +582,7 @@ describe('SqliteStorageProvider', () => {
       const state = externalDb
         .prepare('SELECT value FROM _adapter_state WHERE key = ?')
         .get('version') as { value: string };
-      expect(state?.value).toBe('4');
+      expect(state?.value).toBe('5');
 
       await p.close();
       externalDb.close();
@@ -1107,7 +1117,7 @@ describe('SqliteStorageProvider', () => {
           .prepare('SELECT value FROM _adapter_state WHERE key = ?')
           .get('version') as { value: string } | undefined;
         expect(stateRow).toBeDefined();
-        expect(stateRow?.value).toBe('4'); // Current adapter version
+        expect(stateRow?.value).toBe('5'); // Current adapter version
 
         directDb.close();
       } finally {

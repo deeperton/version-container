@@ -6,6 +6,7 @@ import type {
   ISO8601Timestamp,
   TagType,
   TagId,
+  OwnerInfo,
 } from '../../models/base.js';
 import type { StorageProvider } from '../../models/adapter.js';
 import type {
@@ -26,8 +27,8 @@ import type { VersionCombo } from '../../models/combo.js';
  * Computes the latest combo update information for a project.
  */
 function computeComboLatestInfo(combos: readonly VersionCombo[]): {
-  comboLatestUpdateAt?: string;
-  comboLatestUpdateBy?: import('../../models/base.js').OwnerInfo;
+  comboLatestUpdateAt?: ISO8601Timestamp;
+  comboLatestUpdateBy?: OwnerInfo;
   comboLatestName?: string;
 } {
   if (combos.length === 0) {
@@ -247,15 +248,13 @@ const MIGRATIONS: readonly Migration[] = [
       addColumnIfNotExists('snapshots', 'updatedBy_user_name', 'TEXT');
       addColumnIfNotExists('snapshots', 'updatedBy_user_id', 'TEXT');
       addColumnIfNotExists('snapshots', 'updatedBy_user_group_id', 'TEXT');
-      addColumnIfNotExists('snapshots', 'updatedBy_type', 'TEXT');
 
       // Migrate existing data: set updatedBy = owner for existing records
       db.exec(`
         UPDATE snapshots
         SET updatedBy_user_name = owner_user_name,
             updatedBy_user_id = owner_user_id,
-            updatedBy_user_group_id = owner_user_group_id,
-            updatedBy_type = owner_user_id IS NOT NULL ? 'user' : 'group'
+            updatedBy_user_group_id = owner_user_group_id
         WHERE updatedBy_user_id IS NULL
       `);
 
@@ -323,7 +322,6 @@ export class SqliteStorageProvider implements StorageProvider {
       updatedByUserName: string | null,
       updatedByUserId: string | null,
       updatedByUserGroupId: string | null,
-      updatedByType: string | null,
       partsCount: number,
       combosCount: number,
       data: string
@@ -335,6 +333,12 @@ export class SqliteStorageProvider implements StorageProvider {
       name: string;
       description: string | null;
       updated_at: string;
+      owner_user_name: string | null;
+      owner_user_id: string | null;
+      owner_user_group_id: string | null;
+      updatedBy_user_name: string | null;
+      updatedBy_user_id: string | null;
+      updatedBy_user_group_id: string | null;
     }[];
   } | null = null;
 
@@ -459,10 +463,10 @@ export class SqliteStorageProvider implements StorageProvider {
       INSERT INTO snapshots (
         project_id, name, description, created_at, updated_at,
         owner_user_name, owner_user_id, owner_user_group_id,
-        updatedBy_user_name, updatedBy_user_id, updatedBy_user_group_id, updatedBy_type,
+        updatedBy_user_name, updatedBy_user_id, updatedBy_user_group_id,
         parts_count, combos_count, data
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(project_id) DO UPDATE SET
         name = excluded.name,
         description = excluded.description,
@@ -474,16 +478,17 @@ export class SqliteStorageProvider implements StorageProvider {
         updatedBy_user_name = excluded.updatedBy_user_name,
         updatedBy_user_id = excluded.updatedBy_user_id,
         updatedBy_user_group_id = excluded.updatedBy_user_group_id,
-        updatedBy_type = excluded.updatedBy_type,
         parts_count = excluded.parts_count,
         combos_count = excluded.combos_count,
         data = excluded.data
     `);
 
     // Prepare list statement (sorted by updated_at descending)
-    // Note: This doesn't include owner info - kept for backward compatibility
     this.listStmt = db.prepare(`
-      SELECT project_id, name, description, updated_at
+      SELECT
+        project_id, name, description, updated_at,
+        owner_user_name, owner_user_id, owner_user_group_id,
+        updatedBy_user_name, updatedBy_user_id, updatedBy_user_group_id
       FROM snapshots
       ORDER BY updated_at DESC
     `);
@@ -555,13 +560,13 @@ export class SqliteStorageProvider implements StorageProvider {
         'SELECT tag_id, name, type, description, metadata, created_at FROM tags WHERE project_id = ?'
       )
       .all(projectId) as Array<{
-      tag_id: string;
-      name: string;
-      type: TagType;
-      description: string | null;
-      metadata: string | null;
-      created_at: string;
-    }>;
+        tag_id: string;
+        name: string;
+        type: TagType;
+        description: string | null;
+        metadata: string | null;
+        created_at: string;
+      }>;
 
     return rows.map((row) => ({
       id: row.tag_id as TagId,
@@ -641,7 +646,6 @@ export class SqliteStorageProvider implements StorageProvider {
     const updatedByUserName = project.updatedBy?.userName ?? null;
     const updatedByUserId = project.updatedBy?.userId ?? null;
     const updatedByUserGroupId = project.updatedBy?.userGroupId ?? null;
-    const updatedByType = project.updatedBy?.type ?? null;
 
     // Compute statistics
     const partsCount = snapshot.parts.length;
@@ -660,7 +664,6 @@ export class SqliteStorageProvider implements StorageProvider {
         updatedByUserName,
         updatedByUserId as string | null,
         updatedByUserGroupId as string | null,
-        updatedByType,
         partsCount,
         combosCount,
         serialized
@@ -801,10 +804,30 @@ export class SqliteStorageProvider implements StorageProvider {
         name: string;
         description: string | null;
         updated_at: string;
+        owner_user_name: string | null;
+        owner_user_id: string | null;
+        owner_user_group_id: string | null;
+        updatedBy_user_name: string | null;
+        updatedBy_user_id: string | null;
+        updatedBy_user_group_id: string | null;
       }) => ({
         id: row.project_id as ProjectId,
         name: row.name,
         description: row.description ?? undefined,
+        owner: {
+          userName: row.owner_user_name || 'Unknown',
+          userId: (row.owner_user_id || 'unknown') as import('../../models/base.js').UserId,
+          ...(row.owner_user_group_id && {
+            userGroupId: row.owner_user_group_id as import('../../models/base.js').UserGroupId,
+          }),
+        },
+        updatedBy: {
+          userName: row.updatedBy_user_name || 'Unknown',
+          userId: (row.updatedBy_user_id || 'unknown') as import('../../models/base.js').UserId,
+          ...(row.updatedBy_user_group_id && {
+            userGroupId: row.updatedBy_user_group_id as import('../../models/base.js').UserGroupId,
+          }),
+        },
         updatedAt: row.updated_at as ISO8601Timestamp,
       })
     );
@@ -841,10 +864,9 @@ export class SqliteStorageProvider implements StorageProvider {
       } else if (query?.ownerGroupId) {
         whereClauses.push('owner_user_group_id = ?');
         params.push(query.ownerGroupId as string);
-      } else {
-        // No owner specified - only return projects WITHOUT owner info
-        whereClauses.push('owner_user_id IS NULL');
       }
+      // Note: Since owner is now required, we no longer filter for projects without owner info
+      // When no owner filter is specified, all projects are returned (subject to other filters)
     }
 
     if (query?.namePattern) {
@@ -886,7 +908,7 @@ export class SqliteStorageProvider implements StorageProvider {
       SELECT
         project_id, name, description, created_at, updated_at,
         owner_user_name, owner_user_id, owner_user_group_id,
-        updatedBy_user_name, updatedBy_user_id, updatedBy_user_group_id, updatedBy_type,
+        updatedBy_user_name, updatedBy_user_id, updatedBy_user_group_id,
         parts_count, combos_count, data
       FROM snapshots
       ${whereClause}
@@ -907,7 +929,6 @@ export class SqliteStorageProvider implements StorageProvider {
       updatedBy_user_name: string | null;
       updatedBy_user_id: string | null;
       updatedBy_user_group_id: string | null;
-      updatedBy_type: string | null;
       parts_count: number;
       combos_count: number;
       data: string;
@@ -926,27 +947,20 @@ export class SqliteStorageProvider implements StorageProvider {
         updatedAt: row.updated_at as ISO8601Timestamp,
         partsCount: row.parts_count,
         combosCount: row.combos_count,
-        ...(row.owner_user_id &&
-          row.owner_user_name && {
-            owner: {
-              userName: row.owner_user_name,
-              userId: row.owner_user_id as UserId,
-              ...(row.owner_user_group_id && {
-                userGroupId: row.owner_user_group_id as UserGroupId,
-              }),
-            },
+        owner: {
+          userName: row.owner_user_name || 'Unknown',
+          userId: (row.owner_user_id || 'unknown') as UserId,
+          ...(row.owner_user_group_id && {
+            userGroupId: row.owner_user_group_id as UserGroupId,
           }),
-        ...(row.updatedBy_user_id &&
-          row.updatedBy_user_name && {
-            updatedBy: {
-              userName: row.updatedBy_user_name,
-              userId: row.updatedBy_user_id as UserId,
-              ...(row.updatedBy_user_group_id && {
-                userGroupId: row.updatedBy_user_group_id as UserGroupId,
-              }),
-              ...(row.updatedBy_type && { type: row.updatedBy_type as 'user' | 'group' }),
-            },
+        },
+        updatedBy: {
+          userName: row.updatedBy_user_name || 'Unknown',
+          userId: (row.updatedBy_user_id || 'unknown') as UserId,
+          ...(row.updatedBy_user_group_id && {
+            userGroupId: row.updatedBy_user_group_id as UserGroupId,
           }),
+        },
         ...comboLatestInfo,
       };
 

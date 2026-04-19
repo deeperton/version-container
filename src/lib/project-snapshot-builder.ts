@@ -10,6 +10,7 @@ import {
 } from './errors.js';
 import type { Clock } from './clock.js';
 import { createComboId, createPartId, createPartVersionId, createProjectId } from './ids.js';
+import { TagDefinition } from '../models/tag.js';
 
 interface BuildProjectSnapshotOptions {
   readonly clock: Clock;
@@ -155,6 +156,6 @@ export const buildProjectSnapshot = (
     versions: sortById(versions),
     combos: sortById(combos),
     locks: [],
-    tags: init.tags ?? [], // Use provided tags or default to empty array
+    tags: (init.tags ?? []) as TagDefinition[], // Use provided tags or default to empty array
   };
 };

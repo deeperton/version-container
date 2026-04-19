@@ -1,4 +1,4 @@
-import type { ProjectId } from '../../models/base.js';
+import type { ISO8601Timestamp, OwnerInfo, ProjectId } from '../../models/base.js';
 import type { StorageProvider } from '../../models/adapter.js';
 import type {
   ProjectListResult,
@@ -18,8 +18,8 @@ const DEFAULT_PAGE_SIZE = 50;
  * @returns Object with latest update info, or undefined if no combos exist
  */
 function computeComboLatestInfo(combos: readonly VersionCombo[]): {
-  comboLatestUpdateAt?: string;
-  comboLatestUpdateBy?: import('../../models/base.js').OwnerInfo;
+  comboLatestUpdateAt?: ISO8601Timestamp;
+  comboLatestUpdateBy?: OwnerInfo;
   comboLatestName?: string;
 } {
   if (combos.length === 0) {

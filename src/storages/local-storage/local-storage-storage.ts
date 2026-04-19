@@ -1,4 +1,4 @@
-import type { ProjectId, ISO8601Timestamp } from '../../models/base.js';
+import type { ProjectId, ISO8601Timestamp, OwnerInfo } from '../../models/base.js';
 import type { StorageProvider } from '../../models/adapter.js';
 import type {
   ProjectListResult,
@@ -22,8 +22,8 @@ const DEFAULT_PAGE_SIZE = 50;
  * Computes the latest combo update information for a project.
  */
 function computeComboLatestInfo(combos: readonly VersionCombo[]): {
-  comboLatestUpdateAt?: string;
-  comboLatestUpdateBy?: import('../../models/base.js').OwnerInfo;
+  comboLatestUpdateAt?: ISO8601Timestamp;
+  comboLatestUpdateBy?: OwnerInfo;
   comboLatestName?: string;
 } {
   if (combos.length === 0) {
@@ -293,6 +293,8 @@ export class LocalStorageStorageProvider implements StorageProvider {
               id: snapshot.project.id,
               name: snapshot.project.name,
               description: snapshot.project.description,
+              owner: snapshot.project.owner,
+              updatedBy: snapshot.project.updatedBy,
               updatedAt: snapshot.project.updatedAt,
             });
           }
