@@ -1241,6 +1241,33 @@ const results = await registry.listProjects({
 });
 ```
 
+#### Metadata filtering
+
+Filter projects by their metadata key-value pairs. All specified pairs must match (AND logic). Only primitive values (string, number, boolean) are supported as filter values.
+
+```ts
+// Find active (non-deleted) projects
+const activeProjects = await registry.listProjects({
+  ownerUserId: myUserId,
+  metadata: { deleted: false },
+});
+
+// Filter by multiple metadata fields
+const premiumActive = await registry.listProjects({
+  includeAll: true,
+  metadata: { status: 'active', tier: 'premium' },
+});
+
+// Combine with other filters
+const recentPremium = await registry.listProjects({
+  ownerUserId: myUserId,
+  metadata: { tier: 'premium' },
+  updatedAfter: '2024-06-01T00:00:00Z',
+});
+```
+
+> **Note:** Metadata filter values must be primitives. Passing objects or arrays will throw `InvalidMetadataFilterError`. For the SQLite storage provider, metadata filtering uses `json_extract()` on the stored JSON data column.
+
 #### Project summary with stats and activity tracking
 
 Each project in the results includes owner information, update tracking, and combo activity:

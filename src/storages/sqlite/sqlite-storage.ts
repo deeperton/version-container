@@ -18,6 +18,7 @@ import type {
 } from '../../models/project.js';
 import type { TagDefinition } from '../../models/tag.js';
 import type { VersionCombo } from '../../models/combo.js';
+import { validateMetadataFilter } from '../metadata-filter.js';
 
 /**
  * Options for configuring the SQLite storage provider.
@@ -893,6 +894,20 @@ export class SqliteStorageProvider implements StorageProvider {
     if (query?.updatedBefore) {
       whereClauses.push('updated_at <= ?');
       params.push(query.updatedBefore as string);
+    }
+
+    if (query?.metadata) {
+      validateMetadataFilter(query.metadata);
+      for (const [key, value] of Object.entries(query.metadata)) {
+        whereClauses.push(`json_extract(data, ?) = ?`);
+        params.push(`$.project.metadata.${key}`);
+        // SQLite json_extract returns 1/0 for booleans, strings without quotes
+        if (typeof value === 'boolean') {
+          params.push(value ? 1 : 0);
+        } else {
+          params.push(value as string | number);
+        }
+      }
     }
 
     const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';

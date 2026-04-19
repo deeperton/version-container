@@ -9,6 +9,7 @@ import type {
 } from '../../models/project.js';
 import type { VersionCombo } from '../../models/combo.js';
 import { cloneValue } from '../../lib/utils/clone.js';
+import { validateMetadataFilter, matchesMetadataFilter } from '../metadata-filter.js';
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -135,6 +136,11 @@ export class InMemoryStorageProvider implements StorageProvider {
 
     if (query?.updatedBefore) {
       filtered = filtered.filter((s) => s.project.updatedAt <= query.updatedBefore!);
+    }
+
+    if (query?.metadata) {
+      validateMetadataFilter(query.metadata);
+      filtered = filtered.filter((s) => matchesMetadataFilter(s.project.metadata, query.metadata!));
     }
 
     // Sort by updatedAt descending

@@ -8,6 +8,7 @@ import type {
   ProjectSummary,
 } from '../../models/project.js';
 import type { VersionCombo } from '../../models/combo.js';
+import { validateMetadataFilter, matchesMetadataFilter } from '../metadata-filter.js';
 
 export interface LocalStorageStorageOptions {
   readonly id?: string;
@@ -157,6 +158,13 @@ export class LocalStorageStorageProvider implements StorageProvider {
     if (query?.updatedBefore) {
       filtered = filtered.filter(
         (s: ProjectSnapshot) => s.project.updatedAt <= (query.updatedBefore as ISO8601Timestamp)
+      );
+    }
+
+    if (query?.metadata) {
+      validateMetadataFilter(query.metadata);
+      filtered = filtered.filter((s: ProjectSnapshot) =>
+        matchesMetadataFilter(s.project.metadata, query.metadata!)
       );
     }
 

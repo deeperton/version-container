@@ -56,7 +56,8 @@ export type VersionContainerErrorCode =
   | 'PART_ALREADY_DELETED'
   | 'VERSION_ALREADY_DELETED'
   | 'PROJECT_ACCESS_DENIED'
-  | 'REFERENCED_BY_COMBO';
+  | 'REFERENCED_BY_COMBO'
+  | 'INVALID_METADATA_FILTER';
 
 // ============================================================================
 // NotFoundError subclasses
@@ -384,5 +385,24 @@ export class ReferencedByComboError extends VersionContainerError {
     referencingCombos: readonly ComboId[]
   ): ReferencedByComboError {
     return new ReferencedByComboError({ versionId }, comboCount, referencingCombos);
+  }
+}
+
+/**
+ * Thrown when a metadata filter contains non-primitive values.
+ * Only string, number, and boolean filter values are supported.
+ */
+export class InvalidMetadataFilterError extends VersionContainerError {
+  readonly code = 'INVALID_METADATA_FILTER' as const;
+  readonly key: string;
+  readonly actualType: string;
+
+  constructor(key: string, actualType: string) {
+    super(
+      `Metadata filter value for key "${key}" must be a primitive (string, number, or boolean), ` +
+        `but received ${actualType}. Complex metadata values are not supported in queries.`
+    );
+    this.key = key;
+    this.actualType = actualType;
   }
 }

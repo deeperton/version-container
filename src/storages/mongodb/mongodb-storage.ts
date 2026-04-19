@@ -14,6 +14,7 @@ import type {
   ProjectSnapshot,
   ProjectSummary,
 } from '../../models/project.js';
+import { validateMetadataFilter } from '../metadata-filter.js';
 
 /**
  * Options for configuring the MongoDB storage provider.
@@ -244,6 +245,13 @@ export class MongoDbStorageProvider implements StorageProvider {
       }
       if (query.updatedBefore) {
         (filter['project.updatedAt'] as Record<string, string>).$lte = query.updatedBefore;
+      }
+    }
+
+    if (query?.metadata) {
+      validateMetadataFilter(query.metadata);
+      for (const [key, value] of Object.entries(query.metadata)) {
+        filter[`project.metadata.${key}`] = value;
       }
     }
 

@@ -60,7 +60,7 @@ Project
 | `ProjectSnapshot` | Complete project state | Full project with parts/versions/combos/tags |
 | `ProjectSummary` | Lightweight project info | id, name, description, owner, updatedBy, updatedAt |
 | `ProjectListSummary` | Enriched project info | id, name, description, owner, updatedBy, createdAt, updatedAt, partsCount, combosCount, comboLatestUpdateAt, comboLatestUpdateBy, comboLatestName |
-| `ProjectsQuery` | Query options for listProjects | `{ ownerUserId?, namePattern?, limit?, page?, includeAll? }` |
+| `ProjectsQuery` | Query options for listProjects | `{ ownerUserId?, metadata?, namePattern?, limit?, page?, includeAll? }` |
 | `ProjectListResult` | Paginated list of projects | `{ projects[], pagination{} }` |
 
 ## Installation
@@ -882,6 +882,25 @@ const results = await registry.listProjects({
 });
 ```
 
+
+#### Metadata Filtering
+
+Filter projects by their metadata key-value pairs (AND logic). Only primitive values (string, number, boolean) are supported.
+
+```typescript
+// Find active (non-deleted) projects
+const activeProjects = await registry.listProjects({
+  ownerUserId: myUserId,
+  metadata: { deleted: false },
+});
+
+// Filter by multiple metadata fields
+const premiumActive = await registry.listProjects({
+  includeAll: true,
+  metadata: { status: 'active', tier: 'premium' },
+});
+```
+
 #### Project Summary with Stats and Activity Tracking
 
 Each result includes owner info, update tracking, and combo activity:
@@ -983,6 +1002,7 @@ try {
 | `PartAlreadyExistsError` | Part already exists | `partId` |
 | `VersionAlreadyExistsError` | Version already exists | `versionId` |
 | `ComboAlreadyExistsError` | Combo already exists | `comboId` |
+| `InvalidMetadataFilterError` | Non-primitive value passed to metadata filter | `key`, `actualType` |
 
 ## Best Practices
 

@@ -485,4 +485,174 @@ describe('List Projects API', () => {
       expect(result.projects).toHaveLength(3);
     });
   });
+
+  describe('Filtering by metadata', () => {
+    it('should filter by a single metadata key-value pair', async () => {
+      const storage = new InMemoryStorageProvider();
+      const registry = new ProjectRegistry({ storage });
+
+      const handle1 = await registry.open({ name: 'Active Project', metadata: { status: 'active' } });
+      await registry.open({ name: 'Deleted Project', metadata: { deleted: true } });
+      await registry.open({ name: 'Another Active', metadata: { status: 'active' } });
+
+      const result = await registry.listProjects({ includeAll: true, metadata: { status: 'active' } });
+      expect(result.projects).toHaveLength(2);
+      expect(result.projects.map((p) => p.name).sort()).toEqual(['Active Project', 'Another Active']);
+    });
+
+    it('should filter by multiple metadata key-value pairs (AND logic)', async () => {
+      const storage = new InMemoryStorageProvider();
+      const registry = new ProjectRegistry({ storage });
+
+      await registry.open({ name: 'P1', metadata: { status: 'active', tier: 'premium' } });
+      await registry.open({ name: 'P2', metadata: { status: 'active', tier: 'free' } });
+      await registry.open({ name: 'P3', metadata: { status: 'archived', tier: 'premium' } });
+
+      const result = await registry.listProjects({
+        includeAll: true,
+        metadata: { status: 'active', tier: 'premium' },
+      });
+      expect(result.projects).toHaveLength(1);
+      expect(result.projects[0].name).toBe('P1');
+    });
+
+    it('should return empty when metadata key does not exist in any project', async () => {
+      const storage = new InMemoryStorageProvider();
+      const registry = new ProjectRegistry({ storage });
+
+      await registry.open({ name: 'P1', metadata: { status: 'active' } });
+
+      const result = await registry.listProjects({
+        includeAll: true,
+        metadata: { nonexistent: 'value' },
+      });
+      expect(result.projects).toHaveLength(0);
+    });
+
+    it('should return empty when metadata value does not match', async () => {
+      const storage = new InMemoryStorageProvider();
+      const registry = new ProjectRegistry({ storage });
+
+      await registry.open({ name: 'P1', metadata: { status: 'active' } });
+
+      const result = await registry.listProjects({
+        includeAll: true,
+        metadata: { status: 'archived' },
+      });
+      expect(result.projects).toHaveLength(0);
+    });
+
+    it('should filter by boolean metadata values', async () => {
+      const storage = new InMemoryStorageProvider();
+      const registry = new ProjectRegistry({ storage });
+
+      await registry.open({ name: 'Visible', metadata: { hidden: false } });
+      await registry.open({ name: 'Hidden', metadata: { hidden: true } });
+      await registry.open({ name: 'No Flag' });
+
+      const result = await registry.listProjects({ includeAll: true, metadata: { hidden: true } });
+      expect(result.projects).toHaveLength(1);
+      expect(result.projects[0].name).toBe('Hidden');
+    });
+
+    it('should filter by numeric metadata values', async () => {
+      const storage = new InMemoryStorageProvider();
+      const registry = new ProjectRegistry({ storage });
+
+      await registry.open({ name: 'Version 1', metadata: { version: 1 } });
+      await registry.open({ name: 'Version 2', metadata: { version: 2 } });
+
+      const result = await registry.listProjects({ includeAll: true, metadata: { version: 2 } });
+      expect(result.projects).toHaveLength(1);
+      expect(result.projects[0].name).toBe('Version 2');
+    });
+
+    it('should combine metadata filter with other filters', async () => {
+      const storage = new InMemoryStorageProvider();
+      const registry = new ProjectRegistry({ storage });
+
+      const user1 = createUserId('user-1');
+      const user2 = createUserId('user-2');
+
+      await registry.open(
+        { name: 'User1 Active', metadata: { status: 'active' }, owner: { userName: 'U1', userId: user1 } },
+        user1
+      );
+      await registry.open(
+        { name: 'User1 Deleted', metadata: { deleted: true }, owner: { userName: 'U1', userId: user1 } },
+        user1
+      );
+      await registry.open(
+        { name: 'User2 Active', metadata: { status: 'active' }, owner: { userName: 'U2', userId: user2 } },
+        user2
+      );
+
+      // Filter by owner + metadata
+      const result = await registry.listProjects({
+        ownerUserId: user1,
+        metadata: { status: 'active' },
+      });
+      expect(result.projects).toHaveLength(1);
+      expect(result.projects[0].name).toBe('User1 Active');
+    });
+
+    it('should not match projects without metadata when metadata filter is specified', async () => {
+      const storage = new InMemoryStorageProvider();
+      const registry = new ProjectRegistry({ storage });
+
+      await registry.open({ name: 'No Metadata' });
+      await registry.open({ name: 'Has Metadata', metadata: { key: 'value' } });
+
+      const result = await registry.listProjects({ includeAll: true, metadata: { key: 'value' } });
+      expect(result.projects).toHaveLength(1);
+      expect(result.projects[0].name).toBe('Has Metadata');
+    });
+
+    it('should throw InvalidMetadataFilterError for non-primitive metadata filter values', async () => {
+      const storage = new InMemoryStorageProvider();
+      const registry = new ProjectRegistry({ storage });
+
+      await registry.open({ name: 'P1' });
+
+      // Object value
+      await expect(
+        registry.listProjects({ includeAll: true, metadata: { nested: { foo: 'bar' } } })
+      ).rejects.toThrow('Complex metadata values are not supported in queries');
+
+      // Array value
+      await expect(
+        registry.listProjects({ includeAll: true, metadata: { tags: ['a', 'b'] } })
+      ).rejects.toThrow('Complex metadata values are not supported in queries');
+
+      // Null value
+      await expect(
+        registry.listProjects({ includeAll: true, metadata: { empty: null } })
+      ).rejects.toThrow('Complex metadata values are not supported in queries');
+    });
+
+    it('should reflect correct pagination when metadata filtering reduces results', async () => {
+      const storage = new InMemoryStorageProvider();
+      const registry = new ProjectRegistry({ storage });
+
+      // Create 10 projects, only 3 with the target metadata
+      for (let i = 1; i <= 10; i++) {
+        await registry.open({
+          name: `Project ${i}`,
+          metadata: i <= 3 ? { featured: true } : { featured: false },
+        });
+      }
+
+      const result = await registry.listProjects({
+        includeAll: true,
+        metadata: { featured: true },
+        limit: 2,
+        page: 1,
+      });
+
+      expect(result.projects).toHaveLength(2);
+      expect(result.pagination.totalCount).toBe(3);
+      expect(result.pagination.totalPages).toBe(2);
+      expect(result.pagination.hasNext).toBe(true);
+    });
+  });
 });

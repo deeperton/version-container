@@ -124,6 +124,13 @@ export interface ProjectsQuery {
    * @default false
    */
   readonly includeAll?: boolean;
+  /**
+   * Filter by project metadata key-value pairs (subset match).
+   * All specified key-value pairs must exist in the project's metadata.
+   * Only primitive values (string, number, boolean) are supported.
+   * Throws if a non-primitive value is provided.
+   */
+  readonly metadata?: MetadataRecord;
 }
 
 /**

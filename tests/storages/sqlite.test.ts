@@ -1189,4 +1189,205 @@ describe('SqliteStorageProvider', () => {
       }
     });
   });
+
+  describe('metadata filtering via json_extract', () => {
+    it('should filter by string metadata values using json_extract', async () => {
+      const snapshot1: ProjectSnapshot = {
+        ...createTestSnapshot('p1', 'Active Project'),
+        project: {
+          ...createTestSnapshot('p1', 'Active Project').project,
+          metadata: { status: 'active' },
+        },
+      };
+      const snapshot2: ProjectSnapshot = {
+        ...createTestSnapshot('p2', 'Archived Project'),
+        project: {
+          ...createTestSnapshot('p2', 'Archived Project').project,
+          metadata: { status: 'archived' },
+        },
+      };
+      const snapshot3: ProjectSnapshot = {
+        ...createTestSnapshot('p3', 'No Status'),
+        project: {
+          ...createTestSnapshot('p3', 'No Status').project,
+        },
+      };
+
+      await provider.saveSnapshot(snapshot1);
+      await provider.saveSnapshot(snapshot2);
+      await provider.saveSnapshot(snapshot3);
+
+      const result = await provider.listProjects({
+        includeAll: true,
+        metadata: { status: 'active' },
+      });
+
+      expect(result.projects).toHaveLength(1);
+      expect(result.projects[0].name).toBe('Active Project');
+      expect(result.pagination.totalCount).toBe(1);
+    });
+
+    it('should filter by boolean metadata values using json_extract', async () => {
+      const snapshot1: ProjectSnapshot = {
+        ...createTestSnapshot('p1', 'Published'),
+        project: {
+          ...createTestSnapshot('p1', 'Published').project,
+          metadata: { published: true },
+        },
+      };
+      const snapshot2: ProjectSnapshot = {
+        ...createTestSnapshot('p2', 'Draft'),
+        project: {
+          ...createTestSnapshot('p2', 'Draft').project,
+          metadata: { published: false },
+        },
+      };
+
+      await provider.saveSnapshot(snapshot1);
+      await provider.saveSnapshot(snapshot2);
+
+      const resultTrue = await provider.listProjects({
+        includeAll: true,
+        metadata: { published: true },
+      });
+      expect(resultTrue.projects).toHaveLength(1);
+      expect(resultTrue.projects[0].name).toBe('Published');
+
+      const resultFalse = await provider.listProjects({
+        includeAll: true,
+        metadata: { published: false },
+      });
+      expect(resultFalse.projects).toHaveLength(1);
+      expect(resultFalse.projects[0].name).toBe('Draft');
+    });
+
+    it('should filter by numeric metadata values using json_extract', async () => {
+      const snapshot1: ProjectSnapshot = {
+        ...createTestSnapshot('p1', 'V1'),
+        project: {
+          ...createTestSnapshot('p1', 'V1').project,
+          metadata: { priority: 1 },
+        },
+      };
+      const snapshot2: ProjectSnapshot = {
+        ...createTestSnapshot('p2', 'V2'),
+        project: {
+          ...createTestSnapshot('p2', 'V2').project,
+          metadata: { priority: 2 },
+        },
+      };
+
+      await provider.saveSnapshot(snapshot1);
+      await provider.saveSnapshot(snapshot2);
+
+      const result = await provider.listProjects({
+        includeAll: true,
+        metadata: { priority: 2 },
+      });
+      expect(result.projects).toHaveLength(1);
+      expect(result.projects[0].name).toBe('V2');
+    });
+
+    it('should combine metadata filter with ownerUserId filter', async () => {
+      const user1 = 'user-1' as UserId;
+      const user2 = 'user-2' as UserId;
+
+      const owner1: OwnerInfo = { userName: 'User 1', userId: user1 };
+      const owner2: OwnerInfo = { userName: 'User 2', userId: user2 };
+
+      const snapshot1: ProjectSnapshot = {
+        ...createTestSnapshot('p1', 'U1 Active'),
+        project: {
+          ...createTestSnapshot('p1', 'U1 Active').project,
+          owner: owner1,
+          updatedBy: owner1,
+          metadata: { status: 'active' },
+        },
+      };
+      const snapshot2: ProjectSnapshot = {
+        ...createTestSnapshot('p2', 'U1 Deleted'),
+        project: {
+          ...createTestSnapshot('p2', 'U1 Deleted').project,
+          owner: owner1,
+          updatedBy: owner1,
+          metadata: { deleted: true },
+        },
+      };
+      const snapshot3: ProjectSnapshot = {
+        ...createTestSnapshot('p3', 'U2 Active'),
+        project: {
+          ...createTestSnapshot('p3', 'U2 Active').project,
+          owner: owner2,
+          updatedBy: owner2,
+          metadata: { status: 'active' },
+        },
+      };
+
+      await provider.saveSnapshot(snapshot1);
+      await provider.saveSnapshot(snapshot2);
+      await provider.saveSnapshot(snapshot3);
+
+      const result = await provider.listProjects({
+        ownerUserId: user1,
+        metadata: { status: 'active' },
+      });
+
+      expect(result.projects).toHaveLength(1);
+      expect(result.projects[0].name).toBe('U1 Active');
+    });
+
+    it('should filter by multiple metadata keys (AND logic)', async () => {
+      const snapshot1: ProjectSnapshot = {
+        ...createTestSnapshot('p1', 'Match'),
+        project: {
+          ...createTestSnapshot('p1', 'Match').project,
+          metadata: { env: 'production', tier: 'premium' },
+        },
+      };
+      const snapshot2: ProjectSnapshot = {
+        ...createTestSnapshot('p2', 'Partial'),
+        project: {
+          ...createTestSnapshot('p2', 'Partial').project,
+          metadata: { env: 'production', tier: 'free' },
+        },
+      };
+
+      await provider.saveSnapshot(snapshot1);
+      await provider.saveSnapshot(snapshot2);
+
+      const result = await provider.listProjects({
+        includeAll: true,
+        metadata: { env: 'production', tier: 'premium' },
+      });
+
+      expect(result.projects).toHaveLength(1);
+      expect(result.projects[0].name).toBe('Match');
+    });
+
+    it('should correctly paginate metadata-filtered results', async () => {
+      // Create 5 matching + 5 non-matching
+      for (let i = 1; i <= 10; i++) {
+        const snapshot: ProjectSnapshot = {
+          ...createTestSnapshot(`p${i}`, `Project ${i}`, `2024-01-${String(i).padStart(2, '0')}T00:00:00.000Z` as ISO8601Timestamp),
+          project: {
+            ...createTestSnapshot(`p${i}`, `Project ${i}`, `2024-01-${String(i).padStart(2, '0')}T00:00:00.000Z` as ISO8601Timestamp).project,
+            metadata: { featured: i <= 5 },
+          },
+        };
+        await provider.saveSnapshot(snapshot);
+      }
+
+      const result = await provider.listProjects({
+        includeAll: true,
+        metadata: { featured: true },
+        limit: 2,
+        page: 1,
+      });
+
+      expect(result.projects).toHaveLength(2);
+      expect(result.pagination.totalCount).toBe(5);
+      expect(result.pagination.totalPages).toBe(3);
+      expect(result.pagination.hasNext).toBe(true);
+    });
+  });
 });
