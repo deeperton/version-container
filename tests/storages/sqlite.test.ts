@@ -1389,5 +1389,67 @@ describe('SqliteStorageProvider', () => {
       expect(result.pagination.totalPages).toBe(3);
       expect(result.pagination.hasNext).toBe(true);
     });
+
+    it('should treat missing metadata as false when treatMissingMetadataAsFalse is true', async () => {
+      const snapshot1: ProjectSnapshot = {
+        ...createTestSnapshot('p1', 'Explicit False'),
+        project: {
+          ...createTestSnapshot('p1', 'Explicit False').project,
+          metadata: { deleted: false },
+        },
+      };
+      const snapshot2: ProjectSnapshot = {
+        ...createTestSnapshot('p2', 'Explicit True'),
+        project: {
+          ...createTestSnapshot('p2', 'Explicit True').project,
+          metadata: { deleted: true },
+        },
+      };
+      const snapshot3: ProjectSnapshot = {
+        ...createTestSnapshot('p3', 'Missing Metadata property'),
+        project: {
+          ...createTestSnapshot('p3', 'Missing Metadata property').project,
+          metadata: { status: 'active' },
+        },
+      };
+      const snapshot4: ProjectSnapshot = {
+        ...createTestSnapshot('p4', 'No Metadata entirely'),
+        project: {
+          ...createTestSnapshot('p4', 'No Metadata entirely').project,
+        },
+      };
+
+      await provider.saveSnapshot(snapshot1);
+      await provider.saveSnapshot(snapshot2);
+      await provider.saveSnapshot(snapshot3);
+      await provider.saveSnapshot(snapshot4);
+
+      // Normal behavior
+      const strictResult = await provider.listProjects({ includeAll: true, metadata: { deleted: false } });
+      expect(strictResult.projects).toHaveLength(1);
+      expect(strictResult.projects[0].name).toBe('Explicit False');
+
+      // Relaxed behavior
+      const relaxedResult = await provider.listProjects({
+        includeAll: true,
+        metadata: { deleted: false },
+        treatMissingMetadataAsFalse: true,
+      });
+      expect(relaxedResult.projects).toHaveLength(3);
+      expect(relaxedResult.projects.map(p => p.name).sort()).toEqual([
+        'Explicit False',
+        'Missing Metadata property',
+        'No Metadata entirely'
+      ].sort());
+
+      // Should not affect true requirements
+      const trueResult = await provider.listProjects({
+        includeAll: true,
+        metadata: { deleted: true },
+        treatMissingMetadataAsFalse: true,
+      });
+      expect(trueResult.projects).toHaveLength(1);
+      expect(trueResult.projects[0].name).toBe('Explicit True');
+    });
   });
 });

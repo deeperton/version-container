@@ -131,6 +131,11 @@ export interface ProjectsQuery {
    * Throws if a non-primitive value is provided.
    */
   readonly metadata?: MetadataRecord;
+  /**
+   * If true, and a metadata filter value is `false`, projects missing that metadata key
+   * (or entirely missing metadata) will be treated as if they had a value of `false`.
+   */
+  readonly treatMissingMetadataAsFalse?: boolean;
 }
 
 /**

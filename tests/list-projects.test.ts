@@ -654,5 +654,42 @@ describe('List Projects API', () => {
       expect(result.pagination.totalPages).toBe(2);
       expect(result.pagination.hasNext).toBe(true);
     });
+
+    it('should treat missing metadata as false when treatMissingMetadataAsFalse is true', async () => {
+      const storage = new InMemoryStorageProvider();
+      const registry = new ProjectRegistry({ storage });
+
+      await registry.open({ name: 'Explicit False', metadata: { deleted: false } });
+      await registry.open({ name: 'Explicit True', metadata: { deleted: true } });
+      await registry.open({ name: 'Missing Metadata property', metadata: { status: 'active' } });
+      await registry.open({ name: 'No Metadata entirely' });
+
+      // Normal behavior: only matches the explicit false
+      const strictResult = await registry.listProjects({ includeAll: true, metadata: { deleted: false } });
+      expect(strictResult.projects).toHaveLength(1);
+      expect(strictResult.projects[0].name).toBe('Explicit False');
+
+      // With treatMissingMetadataAsFalse: matches explicit false, missing property, and no metadata
+      const relaxedResult = await registry.listProjects({
+        includeAll: true,
+        metadata: { deleted: false },
+        treatMissingMetadataAsFalse: true,
+      });
+      expect(relaxedResult.projects).toHaveLength(3);
+      expect(relaxedResult.projects.map(p => p.name).sort()).toEqual([
+        'Explicit False',
+        'Missing Metadata property',
+        'No Metadata entirely'
+      ].sort());
+      
+      // treatMissingMetadataAsFalse should not affect other filters
+      const trueResult = await registry.listProjects({
+        includeAll: true,
+        metadata: { deleted: true },
+        treatMissingMetadataAsFalse: true,
+      });
+      expect(trueResult.projects).toHaveLength(1);
+      expect(trueResult.projects[0].name).toBe('Explicit True');
+    });
   });
 });

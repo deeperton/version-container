@@ -250,8 +250,27 @@ export class MongoDbStorageProvider implements StorageProvider {
 
     if (query?.metadata) {
       validateMetadataFilter(query.metadata);
+      
+      const orClauses: Record<string, any>[] = [];
+      
       for (const [key, value] of Object.entries(query.metadata)) {
-        filter[`project.metadata.${key}`] = value;
+        if (value === false && query.treatMissingMetadataAsFalse) {
+          orClauses.push({
+            $or: [
+              { [`project.metadata.${key}`]: false },
+              { [`project.metadata.${key}`]: { $exists: false } }
+            ]
+          });
+        } else {
+          filter[`project.metadata.${key}`] = value;
+        }
+      }
+      
+      if (orClauses.length > 0) {
+        if (!filter.$and) {
+          filter.$and = [];
+        }
+        (filter.$and as Record<string, any>[]).push(...orClauses);
       }
     }
 

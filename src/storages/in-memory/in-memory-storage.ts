@@ -140,7 +140,9 @@ export class InMemoryStorageProvider implements StorageProvider {
 
     if (query?.metadata) {
       validateMetadataFilter(query.metadata);
-      filtered = filtered.filter((s) => matchesMetadataFilter(s.project.metadata, query.metadata!));
+      filtered = filtered.filter((s) =>
+        matchesMetadataFilter(s.project.metadata, query.metadata!, query.treatMissingMetadataAsFalse)
+      );
     }
 
     // Sort by updatedAt descending

@@ -24,12 +24,22 @@ export function validateMetadataFilter(metadata: MetadataRecord): void {
  *
  * @param projectMetadata - The project's metadata (may be undefined)
  * @param filter - The filter entries to check
+ * @param treatMissingAsFalse - If true, treats missing project metadata as `false` when filter value is `false`
  * @returns true if all filter entries match
  */
 export function matchesMetadataFilter(
   projectMetadata: MetadataRecord | undefined,
-  filter: MetadataRecord
+  filter: MetadataRecord,
+  treatMissingAsFalse?: boolean
 ): boolean {
-  if (!projectMetadata) return false;
-  return Object.entries(filter).every(([key, value]) => projectMetadata[key] === value);
+  return Object.entries(filter).every(([key, value]) => {
+    const projectValue = projectMetadata?.[key];
+    
+    // Support treating missing fields as false
+    if (treatMissingAsFalse && value === false && projectValue === undefined) {
+      return true;
+    }
+    
+    return projectValue === value;
+  });
 }

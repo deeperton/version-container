@@ -899,13 +899,19 @@ export class SqliteStorageProvider implements StorageProvider {
     if (query?.metadata) {
       validateMetadataFilter(query.metadata);
       for (const [key, value] of Object.entries(query.metadata)) {
-        whereClauses.push(`json_extract(data, ?) = ?`);
-        params.push(`$.project.metadata.${key}`);
-        // SQLite json_extract returns 1/0 for booleans, strings without quotes
-        if (typeof value === 'boolean') {
-          params.push(value ? 1 : 0);
+        if (value === false && query.treatMissingMetadataAsFalse) {
+          // COALESCE treats missing JSON properties (NULL) as 0 (false)
+          whereClauses.push(`COALESCE(json_extract(data, ?), 0) = 0`);
+          params.push(`$.project.metadata.${key}`);
         } else {
-          params.push(value as string | number);
+          whereClauses.push(`json_extract(data, ?) = ?`);
+          params.push(`$.project.metadata.${key}`);
+          // SQLite json_extract returns 1/0 for booleans, strings without quotes
+          if (typeof value === 'boolean') {
+            params.push(value ? 1 : 0);
+          } else {
+            params.push(value as string | number);
+          }
         }
       }
     }

@@ -1258,6 +1258,14 @@ const premiumActive = await registry.listProjects({
   metadata: { status: 'active', tier: 'premium' },
 });
 
+// Treat missing boolean metadata properties as false
+// Allows matching projects that entirely lack the `deleted` property alongside those with `deleted: false`
+const undeletedProjects = await registry.listProjects({
+  ownerUserId: myUserId,
+  metadata: { deleted: false },
+  treatMissingMetadataAsFalse: true,
+});
+
 // Combine with other filters
 const recentPremium = await registry.listProjects({
   ownerUserId: myUserId,

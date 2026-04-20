@@ -164,7 +164,7 @@ export class LocalStorageStorageProvider implements StorageProvider {
     if (query?.metadata) {
       validateMetadataFilter(query.metadata);
       filtered = filtered.filter((s: ProjectSnapshot) =>
-        matchesMetadataFilter(s.project.metadata, query.metadata!)
+        matchesMetadataFilter(s.project.metadata, query.metadata!, query.treatMissingMetadataAsFalse)
       );
     }
 

@@ -899,6 +899,13 @@ const premiumActive = await registry.listProjects({
   includeAll: true,
   metadata: { status: 'active', tier: 'premium' },
 });
+
+// Match `false` values or entirely missing metadata keys
+const undeletedProjects = await registry.listProjects({
+  ownerUserId: myUserId,
+  metadata: { deleted: false },
+  treatMissingMetadataAsFalse: true,
+});
 ```
 
 #### Project Summary with Stats and Activity Tracking
